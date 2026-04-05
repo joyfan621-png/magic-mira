@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mirror Princess Demo</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <main class="mirror-app">
+      <section class="mirror-stage" aria-label="镜面展示区域">
+        <div class="mirror-sheen mirror-sheen-top"></div>
+        <div class="mirror-sheen mirror-sheen-side"></div>
+
+        <div class="mirror-note">
+          <p class="mirror-note-label">Mirror Mode</p>
+          <p class="mirror-note-body">中上部尽量留给你照镜子，我只在边缘轻轻陪着。</p>
+        </div>
+
+        <div class="scene scene-sparkle is-active" data-scene="sparkle" aria-hidden="true">
+          <span class="spark spark-a"></span>
+          <span class="spark spark-b"></span>
+          <span class="spark spark-c"></span>
+          <span class="spark spark-d"></span>
+        </div>
+
+        <div class="scene scene-princess" data-scene="princess" aria-hidden="true">
+          <div class="princess-cluster princess-left">
+            <span class="bow bow-lg"></span>
+            <span class="pearl pearl-a"></span>
+            <span class="star star-a"></span>
+          </div>
+          <div class="princess-cluster princess-right">
+            <span class="crown"></span>
+            <span class="bow bow-sm"></span>
+            <span class="star star-b"></span>
+          </div>
+        </div>
+
+        <div class="scene scene-acne-map" data-scene="acne-map" aria-hidden="true">
+          <aside class="diagram-card">
+            <p class="diagram-kicker">局部观察</p>
+            <h2>痘痘位置示意</h2>
+            <div class="face-map" data-zone="chin">
+              <div class="face-outline"></div>
+              <div class="face-neck"></div>
+              <span class="zone zone-forehead"></span>
+              <span class="zone zone-cheek-left"></span>
+              <span class="zone zone-cheek-right"></span>
+              <span class="zone zone-nose"></span>
+              <span class="zone zone-chin"></span>
+            </div>
+            <p id="acne-caption" class="diagram-caption">聊到痘痘位置时，这里会高亮对应区域。</p>
+          </aside>
+        </div>
+
+        <div class="scene scene-tcm-map" data-scene="tcm-map" aria-hidden="true">
+          <aside class="diagram-card tcm-card">
+            <p class="diagram-kicker">中医面诊</p>
+            <h2>简化面诊图</h2>
+            <div class="tcm-map">
+              <div class="tcm-face"></div>
+              <span class="tcm-tag tcm-tag-forehead">额</span>
+              <span class="tcm-tag tcm-tag-nose">鼻</span>
+              <span class="tcm-tag tcm-tag-cheek">颊</span>
+              <span class="tcm-tag tcm-tag-chin">颏</span>
+            </div>
+            <p id="tcm-caption" class="diagram-caption">讲到上火、气血、脾胃时，这里会给出一张轻量图解。</p>
+          </aside>
+        </div>
+      </section>
+
+      <section class="chat-dock" aria-label="对话区">
+        <header class="dock-header">
+          <div>
+            <p class="dock-kicker">Standalone Demo</p>
+            <h1>镜面公主对话</h1>
+            <p class="dock-subtitle">黑色镜面优先，聊天贴底，只有聊到相关内容时才轻轻冒出提示图层。</p>
+          </div>
+        </header>
+
+        <div class="quick-prompts" aria-label="快捷体验">
+          <button class="prompt-chip" type="button" data-prompt="今天有点委屈，想哭。">委屈一下</button>
+          <button class="prompt-chip" type="button" data-prompt="最近下巴一直爆痘。">下巴爆痘</button>
+          <button class="prompt-chip" type="button" data-prompt="可以按中医面诊给我讲讲吗？">中医面诊</button>
+        </div>
+
+        <section id="messages" class="messages" aria-live="polite">
+          <article class="message message-agent">
+            <p class="message-role">镜子虾</p>
+            <p>你照你的镜子，我待在下面陪你。想看小公主氛围、痘痘位置图，或者中医面诊图，都可以直接说。</p>
+          </article>
+        </section>
+
+        <form id="composer" class="composer">
+          <label class="composer-label" for="message-input">输入一段话试试</label>
+          <div class="composer-row">
+            <textarea id="message-input" rows="2" placeholder="试试输入：最近下巴爆痘 / 今天有点委屈 / 按中医面诊讲讲"></textarea>
+            <button class="send-button" type="submit">发送</button>
+          </div>
+        </form>
+
+        <p id="status" class="status">这是纯前端视觉 demo，不会调用后端接口。</p>
+      </section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

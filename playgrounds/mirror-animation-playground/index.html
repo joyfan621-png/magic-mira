@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mirror Magic Playground</title>
+    <link rel="stylesheet" href="./style.css">
+  </head>
+  <body>
+    <div class="page-glow page-glow-left" aria-hidden="true"></div>
+    <div class="page-glow page-glow-right" aria-hidden="true"></div>
+
+    <main class="playground-shell">
+      <header class="hero">
+        <p class="eyebrow">Mirror Magic Playground</p>
+        <div class="hero-row">
+          <div>
+            <h1>15 个镜面魔法动画</h1>
+            <p class="subtitle">
+              黑底、粉色、细线条、自动循环。点卡片可以多选，方便你给不同场景挑候选动画。
+            </p>
+          </div>
+          <aside class="hero-note" aria-label="观看建议">
+            <p class="hero-note-label">挑选建议</p>
+            <p class="hero-note-body">先看节奏，再看符号，再看它会不会抢镜。</p>
+          </aside>
+        </div>
+      </header>
+
+      <section class="selection-bar" aria-live="polite">
+        <div class="selection-meta">
+          <p class="selection-label">已选动画</p>
+          <p id="selection-count" class="selection-count">0 个</p>
+        </div>
+        <div id="selection-summary" class="selection-summary">还没选，先点几个喜欢的看看。</div>
+        <button id="clear-selection" class="clear-button" type="button">清空</button>
+      </section>
+
+      <section id="gallery" class="animation-grid" aria-label="动画对比宫格"></section>
+    </main>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

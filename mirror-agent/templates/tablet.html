@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>镜面精灵屏</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='tablet.css') }}">
+  </head>
+  <body>
+    <main class="tablet-shell">
+      <p class="tablet-eyebrow">Mirror Tablet</p>
+      <section class="tablet-stage-shell" aria-label="镜面动画展示区">
+        <div id="tablet-stage" class="tablet-stage" data-scene="startup"></div>
+      </section>
+      <p id="tablet-scene-label" class="tablet-scene-label">启动欢迎</p>
+    </main>
+
+    <script src="{{ url_for('static', filename='tablet.js') }}"></script>
+  </body>
+</html>

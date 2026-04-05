@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>镜中闺蜜</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body data-assistant-label="{{ assistant_label }}">
+    <div class="bg-blur bg-blur-left"></div>
+    <div class="bg-blur bg-blur-right"></div>
+    <div id="mirror-effects" class="mirror-effects" aria-hidden="true"></div>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Mirror Agent Room</p>
+        <h1>镜中闺蜜</h1>
+        <p class="subtitle">住在镜子里的护肤闺蜜。你说近况，我来接住你，也会慢慢记住你喜欢我怎么陪你。</p>
+      </section>
+
+      <section class="chat-card">
+        <header class="chat-header">
+          <div>
+            <h2>今天照镜子了吗</h2>
+            <p>支持文字聊天、图片上传、镜头预览和一键写 diary。</p>
+          </div>
+          <button id="end-button" class="ghost-button" type="button">晚安，写日记</button>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite">
+          <article class="message message-agent">
+            <p class="message-role">{{ assistant_label }}</p>
+            <p>嗨，我刚搬进你的镜子里。你想叫我什么？也可以先直接聊，或者把图丢给我看。</p>
+          </article>
+        </section>
+
+        <section class="camera-stage" aria-label="摄像头预览区">
+          <div class="camera-stage-head">
+            <div>
+              <p class="camera-eyebrow">Video Check-in</p>
+              <h3>开镜头，直接自然聊</h3>
+            </div>
+            <div class="camera-actions">
+              <a class="ghost-button tablet-link" href="/tablet" target="_blank" rel="noreferrer">打开平板页</a>
+              <button id="camera-button" class="ghost-button" type="button">打开镜头</button>
+            </div>
+          </div>
+          <div class="camera-preview-shell">
+            <video id="camera-preview" class="camera-preview" autoplay muted playsinline></video>
+            <canvas id="camera-canvas" class="camera-canvas" aria-hidden="true"></canvas>
+            <p class="camera-hint">镜头开着时，我会自动听你说，也会把最近一帧画面一起带上。</p>
+          </div>
+        </section>
+
+        <form id="chat-form" class="composer">
+          <label class="input-wrap">
+            <span class="sr-only">输入消息</span>
+            <textarea id="message-input" rows="3" placeholder="比如：最近熬夜后鼻翼特别容易红"></textarea>
+          </label>
+          <div class="composer-actions">
+            <button id="voice-button" class="ghost-button voice-button" type="button">点一下开口</button>
+            <label class="upload-chip" for="image-input">选张照片</label>
+            <input id="image-input" type="file" accept="image/*">
+            <input id="image-note" class="note-input" type="text" placeholder="图片说明（选图后再填，可空着）">
+            <button class="send-button" type="submit">发送</button>
+          </div>
+        </form>
+
+        <p id="status" class="status">文字直接发；不开镜头时可以点一下开口。想免按键直接对话，就先开镜头。</p>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
