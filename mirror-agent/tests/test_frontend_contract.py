@@ -6,6 +6,32 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
 class FrontendContractTests(unittest.TestCase):
+    def test_halo_home_template_exposes_display_only_controls(self) -> None:
+        template = (PROJECT_ROOT / "templates" / "home.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="camera-switch-button"', template)
+        self.assertIn('id="camera-button"', template)
+        self.assertIn('id="halo-stage"', template)
+        self.assertIn('id="subtitle-panel"', template)
+        self.assertIn('id="countdown-panel"', template)
+        self.assertNotIn('id="voice-button"', template)
+        self.assertNotIn('id="camera-select"', template)
+
+    def test_halo_home_script_cycles_camera_devices_without_dropdown(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn('const cameraSwitchButton = document.getElementById("camera-switch-button");', script)
+        self.assertIn("async function cycleCameraDevice()", script)
+        self.assertNotIn('document.getElementById("camera-select")', script)
+
+    def test_halo_home_script_streams_voice_into_compact_subtitles(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn('fetch("/api/voice-chat-stream"', script)
+        self.assertIn('const userSubtitleEl = document.getElementById("user-subtitle");', script)
+        self.assertIn('const agentSubtitleEl = document.getElementById("agent-subtitle");', script)
+        self.assertIn("function renderReminder(reminder)", script)
+
     def test_send_button_can_fallback_to_bottom_input_text(self) -> None:
         script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
 

@@ -96,7 +96,23 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         html = response.get_data(as_text=True)
         self.assertIn("镜中闺蜜", html)
+        self.assertIn('id="halo-stage"', html)
+        self.assertIn('id="camera-switch-button"', html)
+        self.assertIn('id="camera-button"', html)
+        self.assertIn('id="subtitle-panel"', html)
+        self.assertIn('id="countdown-panel"', html)
+        self.assertIn('id="camera-preview"', html)
+        self.assertNotIn('id="voice-button"', html)
+
+    def test_lab_page_renders_existing_console(self) -> None:
+        response = self.client.get("/lab")
+
+        self.assertEqual(200, response.status_code)
+        html = response.get_data(as_text=True)
         self.assertIn('data-assistant-label="我"', html)
+        self.assertIn('id="voice-button"', html)
+        self.assertIn('id="camera-select"', html)
+        self.assertIn("打开平板页", html)
 
     def test_tablet_page_renders(self) -> None:
         response = self.client.get("/tablet")

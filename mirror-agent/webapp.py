@@ -155,6 +155,10 @@ def create_app(
 
     @app.get("/")
     def index() -> str:
+        return render_template("home.html", assistant_label=current_assistant_label())
+
+    @app.get("/lab")
+    def lab() -> str:
         return render_template("index.html", assistant_label=current_assistant_label())
 
     @app.get("/tablet")

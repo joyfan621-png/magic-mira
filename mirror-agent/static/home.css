@@ -1,0 +1,386 @@
+:root {
+  --bg: #020304;
+  --bg-soft: #090b10;
+  --ink: rgba(255, 255, 255, 0.92);
+  --muted: rgba(255, 255, 255, 0.58);
+  --line: rgba(255, 255, 255, 0.12);
+  --glow: rgba(122, 202, 255, 0.32);
+  --glow-strong: rgba(167, 226, 255, 0.56);
+  --card: rgba(255, 255, 255, 0.045);
+  --card-strong: rgba(255, 255, 255, 0.08);
+  --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
+  --font-display: "Iowan Old Style", "Baskerville", "Georgia", serif;
+  --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-body);
+  background:
+    radial-gradient(circle at 50% 12%, rgba(141, 214, 255, 0.09), transparent 24%),
+    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.04), transparent 28%),
+    linear-gradient(180deg, #090b0f 0%, var(--bg) 58%, #000 100%);
+}
+
+button,
+video,
+canvas {
+  font: inherit;
+}
+
+.home-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.home-frame {
+  position: relative;
+  width: min(100vw - 2rem, 430px);
+  min-height: min(100vh - 2rem, 860px);
+  aspect-ratio: 10 / 16;
+  overflow: hidden;
+  border-radius: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 18%, transparent 82%, rgba(255, 255, 255, 0.015)),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.012), transparent 16%, transparent 84%, rgba(255, 255, 255, 0.012)),
+    linear-gradient(180deg, rgba(7, 10, 14, 0.96), rgba(0, 0, 0, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    inset 0 -36px 90px rgba(0, 0, 0, 0.48),
+    var(--shadow);
+}
+
+.eyebrow {
+  position: absolute;
+  top: 1.1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  font-size: 0.7rem;
+  letter-spacing: 0.28em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.halo-stage {
+  position: absolute;
+  inset: 0;
+}
+
+.halo-core,
+.halo-ring,
+.halo-orbit,
+.halo-sweep {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+}
+
+.halo-core {
+  width: 78%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(255, 255, 255, 0.12), rgba(141, 214, 255, 0.12) 20%, rgba(0, 0, 0, 0) 60%);
+  filter: drop-shadow(0 0 26px rgba(141, 214, 255, 0.2));
+  animation: halo-breathe 6s ease-in-out infinite;
+}
+
+.halo-ring {
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 18px rgba(141, 214, 255, 0.08);
+  transition: transform 220ms ease, opacity 220ms ease, border-color 220ms ease;
+}
+
+.halo-ring-one {
+  width: 62%;
+  aspect-ratio: 1 / 1;
+}
+
+.halo-ring-two {
+  width: 51%;
+  aspect-ratio: 1 / 1;
+  border-color: rgba(141, 214, 255, 0.18);
+}
+
+.halo-ring-three {
+  width: 40%;
+  aspect-ratio: 1 / 1;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.halo-orbit {
+  width: 70%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  border: 1px dashed rgba(255, 255, 255, 0.08);
+  animation: orbit-rotate 13s linear infinite;
+}
+
+.halo-orbit::after {
+  content: "";
+  position: absolute;
+  right: 11%;
+  top: 24%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(167, 226, 255, 0.95);
+  box-shadow: 0 0 16px rgba(167, 226, 255, 0.72);
+}
+
+.halo-sweep {
+  width: 68%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(167, 226, 255, 0.7), transparent);
+  opacity: 0.26;
+  animation: sweep-fade 5.6s ease-in-out infinite;
+}
+
+.halo-stage[data-scene="listening"] .halo-core,
+.halo-stage[data-scene="reply"] .halo-core {
+  transform: translate(-50%, -50%) scale(1.04);
+}
+
+.halo-stage[data-scene="listening"] .halo-ring,
+.halo-stage[data-scene="reply"] .halo-ring {
+  border-color: rgba(167, 226, 255, 0.3);
+  box-shadow: 0 0 20px rgba(141, 214, 255, 0.16);
+}
+
+.halo-stage[data-scene="thinking"] .halo-core {
+  transform: translate(-50%, -50%) scale(0.98);
+}
+
+.halo-stage[data-scene="thinking"] .halo-orbit {
+  animation-duration: 7s;
+  opacity: 0.9;
+}
+
+.halo-stage[data-scene="reply"] .halo-sweep {
+  opacity: 0.72;
+}
+
+.subtitle-panel {
+  position: absolute;
+  left: 50%;
+  bottom: 7.1rem;
+  transform: translateX(-50%);
+  width: min(calc(100% - 2.2rem), 18rem);
+  padding: 0.85rem 0.95rem;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--line);
+  backdrop-filter: blur(18px);
+}
+
+.subtitle-label,
+.subtitle-line,
+.countdown-label,
+.countdown-message,
+.status-line,
+.camera-device-name {
+  margin: 0;
+}
+
+.subtitle-label {
+  font-size: 0.64rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.46);
+}
+
+.subtitle-line {
+  margin-top: 0.3rem;
+  min-height: 1.2rem;
+  line-height: 1.45;
+  font-size: 0.9rem;
+}
+
+.subtitle-user {
+  color: rgba(255, 255, 255, 0.68);
+}
+
+.subtitle-agent {
+  color: var(--ink);
+}
+
+.countdown-panel {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  width: 8.8rem;
+  padding: 0.85rem 0.9rem;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.28);
+}
+
+.countdown-panel[hidden] {
+  display: none;
+}
+
+.countdown-label {
+  font-size: 0.6rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.countdown-value {
+  margin: 0.3rem 0 0;
+  color: rgba(255, 240, 214, 0.92);
+  font-family: var(--font-display);
+  font-size: 2rem;
+  letter-spacing: 0.08em;
+}
+
+.countdown-message {
+  margin-top: 0.26rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.camera-float {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  width: 8.5rem;
+  padding: 0.4rem;
+  border-radius: 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 32px rgba(0, 0, 0, 0.3);
+}
+
+.camera-preview {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at 30% 24%, rgba(255, 255, 255, 0.18), transparent 18%),
+    linear-gradient(180deg, #444 0%, #1f1f1f 24%, #090909 100%);
+  object-fit: cover;
+}
+
+.camera-canvas {
+  display: none;
+}
+
+.camera-device-name {
+  margin-top: 0.45rem;
+  min-height: 1rem;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.home-controls {
+  position: absolute;
+  left: 50%;
+  bottom: 2.2rem;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 0.7rem;
+}
+
+.ghost-button {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.78rem 1rem;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: transform 160ms ease, background 160ms ease;
+}
+
+.ghost-button:hover {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.primary-button {
+  background: linear-gradient(180deg, rgba(141, 214, 255, 0.16), rgba(255, 255, 255, 0.08));
+  box-shadow:
+    inset 0 0 0 1px rgba(141, 214, 255, 0.16),
+    0 0 22px rgba(141, 214, 255, 0.08);
+}
+
+.status-line {
+  position: absolute;
+  left: 50%;
+  bottom: 0.9rem;
+  transform: translateX(-50%);
+  width: min(calc(100% - 3rem), 18rem);
+  text-align: center;
+  color: rgba(255, 255, 255, 0.46);
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+@keyframes halo-breathe {
+  0%,
+  100% {
+    opacity: 0.8;
+    transform: translate(-50%, -50%) scale(0.98);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.02);
+  }
+}
+
+@keyframes orbit-rotate {
+  from {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes sweep-fade {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: translate(-50%, -50%) scaleX(0.9);
+  }
+
+  50% {
+    opacity: 0.36;
+    transform: translate(-50%, -50%) scaleX(1.04);
+  }
+}
+
+@media (max-height: 760px) {
+  .subtitle-panel {
+    bottom: 6.6rem;
+  }
+
+  .home-controls {
+    bottom: 2rem;
+  }
+}

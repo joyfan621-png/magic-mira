@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>镜中闺蜜</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='home.css') }}">
+  </head>
+  <body data-assistant-label="{{ assistant_label }}">
+    <main class="home-shell">
+      <section class="home-frame" aria-label="镜中闺蜜展示屏">
+        <p class="eyebrow">Mirror Presence</p>
+
+        <div id="halo-stage" class="halo-stage" data-scene="idle" aria-hidden="true">
+          <span class="halo-core"></span>
+          <span class="halo-ring halo-ring-one"></span>
+          <span class="halo-ring halo-ring-two"></span>
+          <span class="halo-ring halo-ring-three"></span>
+          <span class="halo-orbit"></span>
+          <span class="halo-sweep"></span>
+        </div>
+
+        <section id="subtitle-panel" class="subtitle-panel" aria-live="polite">
+          <p class="subtitle-label">Live Mirror</p>
+          <p id="user-subtitle" class="subtitle-line subtitle-user">打开镜头后，我会在这里轻声复述你刚说的话。</p>
+          <p id="agent-subtitle" class="subtitle-line subtitle-agent">{{ assistant_label }} 会在这里用很短的字幕回应你。</p>
+        </section>
+
+        <section id="countdown-panel" class="countdown-panel" aria-live="polite" hidden>
+          <p class="countdown-label">Countdown</p>
+          <p id="countdown-value" class="countdown-value">00:00</p>
+          <p id="countdown-message" class="countdown-message"></p>
+        </section>
+
+        <section class="camera-float" data-active="false">
+          <video id="camera-preview" class="camera-preview" autoplay muted playsinline></video>
+          <canvas id="camera-canvas" class="camera-canvas" aria-hidden="true"></canvas>
+          <p id="camera-device-name" class="camera-device-name">当前摄像头：未连接</p>
+        </section>
+
+        <div class="home-controls">
+          <button id="camera-switch-button" class="ghost-button" type="button">切换摄像头</button>
+          <button id="camera-button" class="ghost-button primary-button" type="button">打开镜头</button>
+        </div>
+
+        <p id="status" class="status-line">打开镜头后，我会自动听你说，也会在这里显示很短的字幕。</p>
+      </section>
+    </main>
+
+    <script src="{{ url_for('static', filename='home.js') }}"></script>
+  </body>
+</html>
