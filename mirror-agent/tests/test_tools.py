@@ -119,7 +119,7 @@ class KnowledgeSearchTests(unittest.TestCase):
 
             result = tools.execute_tool_call(
                 "schedule_reminder",
-                {"minutes": 15, "message": "面膜时间到了，记得摘掉哦。"},
+                {"minutes": 15, "message": "面膜时间到了，记得摘掉并轻轻按摩一下哦。"},
             )
 
             self.assertIn("面膜时间到了", result)

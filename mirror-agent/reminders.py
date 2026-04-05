@@ -7,6 +7,10 @@ from typing import Callable
 from uuid import uuid4
 
 
+def _normalize_identity(text: str) -> str:
+    return " ".join(str(text).split()).strip()
+
+
 @dataclass
 class Reminder:
     id: str
@@ -30,6 +34,11 @@ class ReminderScheduler:
             source_text=str(source_text).strip(),
         )
         with self._lock:
+            self._items = [
+                item
+                for item in self._items
+                if not self._matches_pending_identity(item, reminder)
+            ]
             self._items.append(reminder)
         return reminder
 
@@ -45,3 +54,13 @@ class ReminderScheduler:
                     pending_items.append(item)
             self._items = pending_items
         return due_items
+
+    def _matches_pending_identity(self, existing: Reminder, incoming: Reminder) -> bool:
+        existing_source = _normalize_identity(existing.source_text)
+        incoming_source = _normalize_identity(incoming.source_text)
+        if existing_source and incoming_source:
+            return existing_source == incoming_source
+
+        existing_message = _normalize_identity(existing.message)
+        incoming_message = _normalize_identity(incoming.message)
+        return bool(existing_message) and existing_message == incoming_message

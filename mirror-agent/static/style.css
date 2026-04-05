@@ -272,6 +272,26 @@ input {
   gap: 0.7rem;
 }
 
+.camera-select-wrap {
+  display: inline-flex;
+  align-items: center;
+}
+
+.camera-select {
+  min-width: 12rem;
+  padding: 0.72rem 0.95rem;
+  border-radius: 999px;
+  border: 1px solid rgba(117, 86, 69, 0.2);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--text-primary);
+  font: inherit;
+  box-shadow: 0 10px 28px rgba(84, 59, 40, 0.08);
+}
+
+.camera-select:disabled {
+  opacity: 0.68;
+}
+
 .tablet-link {
   display: inline-flex;
   align-items: center;
@@ -290,6 +310,12 @@ input {
 .camera-stage h3 {
   margin: 0;
   font-size: 1.05rem;
+}
+
+.camera-device-name {
+  margin: 0 0 0.75rem;
+  color: var(--accent-deep);
+  font-size: 0.88rem;
 }
 
 .camera-preview-shell {

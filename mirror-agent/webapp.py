@@ -4,7 +4,9 @@ import asyncio
 import json
 import re
 import tempfile
+from copy import deepcopy
 from pathlib import Path
+from threading import Lock
 from typing import Any, Callable
 
 from agent import MirrorAgent
@@ -22,6 +24,31 @@ except ImportError as exc:  # pragma: no cover - depends on environment
     ) from exc
 
 
+class TabletStateStore:
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._state: dict[str, Any] = {
+            "scene": "idle",
+            "reminder": None,
+            "lastTriggeredReminder": None,
+        }
+
+    def read(self) -> dict[str, Any]:
+        with self._lock:
+            return deepcopy(self._state)
+
+    def update(self, updates: dict[str, Any]) -> dict[str, Any]:
+        with self._lock:
+            next_state = deepcopy(self._state)
+            for key, value in updates.items():
+                if isinstance(next_state.get(key), dict) and isinstance(value, dict):
+                    next_state[key] = {**next_state[key], **value}
+                else:
+                    next_state[key] = value
+            self._state = next_state
+            return deepcopy(self._state)
+
+
 def create_app(
     agent: MirrorAgent | Any | None = None,
     transcribe_audio: Callable[[Path], str] | None = None,
@@ -33,6 +60,7 @@ def create_app(
     app.config["VOICE_OUTPUT_FOLDER"] = tempfile.mkdtemp(prefix="mirror-agent-voice-")
     app.reminder_scheduler = reminder_scheduler or ReminderScheduler()  # type: ignore[attr-defined]
     app.agent = agent or MirrorAgent(reminder_scheduler=app.reminder_scheduler)  # type: ignore[attr-defined]
+    app.tablet_state_store = TabletStateStore()  # type: ignore[attr-defined]
     app.transcribe_audio = transcribe_audio or transcribe_audio_file  # type: ignore[attr-defined]
     default_voice_factory = voice_output_factory or (lambda temp_dir: VoiceOutput(temp_dir=temp_dir))
     app.voice_output = default_voice_factory(Path(app.config["VOICE_OUTPUT_FOLDER"]))  # type: ignore[attr-defined]
@@ -63,6 +91,19 @@ def create_app(
             if label:
                 return label
         return "我"
+
+    def consume_scheduled_reminder() -> dict[str, str] | None:
+        consumer = getattr(app.agent, "consume_last_scheduled_reminder", None)  # type: ignore[attr-defined]
+        if not callable(consumer):
+            return None
+        payload = consumer()
+        if not payload:
+            return None
+        return {
+            "id": str(payload.get("id", "")).strip(),
+            "message": str(payload.get("message", "")).strip(),
+            "due_at": str(payload.get("due_at", "")).strip(),
+        }
 
     def build_interaction_payload(user_text: str, reply: str) -> dict[str, str]:
         joined = f"{user_text}\n{reply}"
@@ -120,6 +161,17 @@ def create_app(
     def tablet() -> str:
         return render_template("tablet.html")
 
+    @app.get("/api/tablet-state")
+    def tablet_state() -> Any:
+        return jsonify(app.tablet_state_store.read())  # type: ignore[attr-defined]
+
+    @app.post("/api/tablet-state")
+    def update_tablet_state() -> Any:
+        payload = request.get_json(silent=True)
+        if not isinstance(payload, dict):
+            return jsonify({"error": "平板状态更新格式不对。"}), 400
+        return jsonify(app.tablet_state_store.update(payload))  # type: ignore[attr-defined]
+
     @app.post("/api/chat")
     def chat() -> Any:
         payload = request.get_json(silent=True) or {}
@@ -129,11 +181,19 @@ def create_app(
 
         try:
             reply = app.agent.respond(message)  # type: ignore[attr-defined]
+            scheduled_reminder = consume_scheduled_reminder()
         except (ThirdPartyAPIError, OllamaAPIError) as exc:
             return json_error(str(exc), 502)
         except Exception as exc:
             return json_error(f"聊天时出了点岔子：{exc}", 502)
-        return jsonify({"reply": reply, "assistant_label": current_assistant_label(), **build_interaction_payload(message, reply)})
+        response_payload = {
+            "reply": reply,
+            "assistant_label": current_assistant_label(),
+            **build_interaction_payload(message, reply),
+        }
+        if scheduled_reminder:
+            response_payload["scheduled_reminder"] = scheduled_reminder
+        return jsonify(response_payload)
 
     @app.post("/api/image")
     def image_chat() -> Any:
@@ -148,19 +208,21 @@ def create_app(
         try:
             reply = app.agent.respond_to_image(str(temp_path), note)  # type: ignore[attr-defined]
             audio_url = synthesize_audio_url(reply)
+            scheduled_reminder = consume_scheduled_reminder()
         except (ThirdPartyAPIError, OllamaAPIError) as exc:
             return json_error(str(exc), 502)
         except Exception as exc:
             return json_error(f"图片分析时出了点岔子：{exc}", 502)
-        return jsonify(
-            {
-                "reply": reply,
-                "image_path": str(temp_path),
-                "audio_url": audio_url,
-                "assistant_label": current_assistant_label(),
-                **build_interaction_payload(note, reply),
-            }
-        )
+        response_payload = {
+            "reply": reply,
+            "image_path": str(temp_path),
+            "audio_url": audio_url,
+            "assistant_label": current_assistant_label(),
+            **build_interaction_payload(note, reply),
+        }
+        if scheduled_reminder:
+            response_payload["scheduled_reminder"] = scheduled_reminder
+        return jsonify(response_payload)
 
     @app.post("/api/voice-chat")
     def voice_chat() -> Any:
@@ -181,20 +243,22 @@ def create_app(
 
             reply = app.agent.respond(prompt, image_paths=image_paths, camera_active=camera_active)  # type: ignore[attr-defined]
             audio_url = synthesize_audio_url(reply)
+            scheduled_reminder = consume_scheduled_reminder()
         except (ThirdPartyAPIError, OllamaAPIError) as exc:
             return json_error(str(exc), 502)
         except Exception as exc:
             return json_error(f"语音对话时出了点岔子：{exc}", 502)
 
-        return jsonify(
-            {
-                "transcript": prompt,
-                "reply": reply,
-                "audio_url": audio_url,
-                "assistant_label": current_assistant_label(),
-                **build_interaction_payload(prompt, reply),
-            }
-        )
+        response_payload = {
+            "transcript": prompt,
+            "reply": reply,
+            "audio_url": audio_url,
+            "assistant_label": current_assistant_label(),
+            **build_interaction_payload(prompt, reply),
+        }
+        if scheduled_reminder:
+            response_payload["scheduled_reminder"] = scheduled_reminder
+        return jsonify(response_payload)
 
     @app.post("/api/voice-chat-stream")
     def voice_chat_stream() -> Any:
@@ -245,12 +309,14 @@ def create_app(
 
                 reply = "".join(reply_parts).strip()
                 audio_url = synthesize_audio_url(reply)
+                scheduled_reminder = consume_scheduled_reminder()
                 yield json.dumps(
                     {
                         "type": "reply_done",
                         "reply": reply,
                         "audio_url": audio_url,
                         "assistant_label": current_assistant_label(),
+                        "scheduled_reminder": scheduled_reminder,
                         **build_interaction_payload(prompt, reply),
                     },
                     ensure_ascii=False,
@@ -274,6 +340,7 @@ def create_app(
                 {
                     "id": reminder.id,
                     "message": reminder.message,
+                    "due_at": reminder.due_at,
                     "audio_url": synthesize_audio_url(reminder.message),
                     "assistant_label": current_assistant_label(),
                     "ui_effect": "glow" if "面膜" in reminder.message else "sparkle",

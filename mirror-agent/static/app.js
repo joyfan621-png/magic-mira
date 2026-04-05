@@ -7,14 +7,18 @@ const imageNoteInput = document.getElementById("image-note");
 const endButton = document.getElementById("end-button");
 const voiceButton = document.getElementById("voice-button");
 const cameraButton = document.getElementById("camera-button");
+const cameraSelect = document.getElementById("camera-select");
 const cameraPreview = document.getElementById("camera-preview");
 const cameraCanvas = document.getElementById("camera-canvas");
+const cameraDeviceName = document.getElementById("camera-device-name");
 const mirrorEffects = document.getElementById("mirror-effects");
 let assistantLabel = document.body.dataset.assistantLabel || "我";
 const VOICE_SILENCE_MS = 1200;
 const VOICE_MAX_MS = 12000;
 const VOICE_THRESHOLD = 0.018;
 const TABLET_STATE_KEY = "mirror-tablet-state";
+const CAMERA_DEVICE_KEY = "mirror-preferred-camera-device-id";
+const PREFERRED_CAMERA_LABEL = "1080P USB Camera";
 const SPEECH_RECOGNITION = window.SpeechRecognition || window.webkitSpeechRecognition;
 const tabletChannel =
   typeof BroadcastChannel === "function" ? new BroadcastChannel("mirror-tablet-display") : null;
@@ -44,9 +48,55 @@ let cameraSnapshotTimer = null;
 let latestCameraFrameBlob = null;
 let latestCameraRegionBlobs = [];
 let tabletSceneTimer = null;
+let preferredCameraDeviceId = readStoredCameraDeviceId();
+let activeCameraTrack = null;
+let cameraRecoveryPromise = null;
 
-function pushTabletScene(scene, details = {}) {
-  const payload = { scene, timestamp: Date.now(), ...details };
+async function persistTabletState(nextState) {
+  try {
+    await fetch("/api/tablet-state", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextState),
+      keepalive: true,
+    });
+  } catch (error) {
+    // Cross-device sync should fail soft; same-device local sync can still keep the UI moving.
+  }
+}
+
+function readTabletState() {
+  try {
+    const raw = localStorage.getItem(TABLET_STATE_KEY);
+    if (!raw) {
+      return {};
+    }
+    const payload = JSON.parse(raw);
+    return payload && typeof payload === "object" ? payload : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+function readStoredCameraDeviceId() {
+  try {
+    return localStorage.getItem(CAMERA_DEVICE_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function persistSelectedCameraDevice(deviceId) {
+  preferredCameraDeviceId = deviceId || "";
+  try {
+    localStorage.setItem(CAMERA_DEVICE_KEY, deviceId);
+  } catch (error) {
+    // Camera selection persistence should fail soft.
+  }
+}
+
+function writeTabletState(nextState) {
+  const payload = { ...nextState, timestamp: Date.now() };
   try {
     localStorage.setItem("mirror-tablet-state", JSON.stringify(payload));
   } catch (error) {
@@ -55,6 +105,49 @@ function pushTabletScene(scene, details = {}) {
   if (tabletChannel) {
     tabletChannel.postMessage(payload);
   }
+  void persistTabletState(payload);
+}
+
+function updateTabletState(updates = {}) {
+  const currentState = readTabletState();
+  writeTabletState({ ...currentState, ...updates });
+}
+
+function pushTabletScene(scene, details = {}) {
+  updateTabletState({ scene, ...details });
+}
+
+function setTabletReminder(reminder) {
+  if (!reminder) {
+    updateTabletState({ reminder: null });
+    return;
+  }
+
+  updateTabletState({
+    reminder: {
+      id: reminder.id,
+      message: reminder.message,
+      due_at: reminder.due_at,
+    },
+    lastTriggeredReminder: null,
+  });
+}
+
+function markTabletReminderTriggered(reminder) {
+  if (!reminder) {
+    return;
+  }
+
+  updateTabletState({
+    reminder: null,
+    lastTriggeredReminder: {
+      id: reminder.id,
+      message: reminder.message,
+      audio_url: reminder.audio_url || "",
+      due_at: reminder.due_at || "",
+      triggered_at: new Date().toISOString(),
+    },
+  });
 }
 
 function queueTabletScene(scene, delayMs = 0, details = {}) {
@@ -363,12 +456,273 @@ function stopVoiceTracks() {
   voiceStream = null;
 }
 
-function stopCameraTracks() {
-  if (!cameraStream) {
+function setCameraDeviceLabel(label) {
+  if (!cameraDeviceName) {
     return;
   }
-  cameraStream.getTracks().forEach((track) => track.stop());
-  cameraStream = null;
+  cameraDeviceName.textContent = `当前摄像头：${label}`;
+}
+
+function stopMediaStream(stream) {
+  if (!stream) {
+    return;
+  }
+  stream.getTracks().forEach((track) => track.stop());
+}
+
+function getVideoTrack(stream = cameraStream) {
+  if (!stream) {
+    return null;
+  }
+  return stream.getVideoTracks()[0] || null;
+}
+
+function getVideoTrackDeviceId(videoTrack) {
+  if (!videoTrack || typeof videoTrack.getSettings !== "function") {
+    return "";
+  }
+  return videoTrack.getSettings().deviceId || "";
+}
+
+async function listVideoInputs() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+    return [];
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  return devices.filter((device) => device.kind === "videoinput");
+}
+
+function normalizeCameraLabel(label = "") {
+  return label.trim().toLowerCase();
+}
+
+function isLikelyBuiltInCamera(label = "") {
+  const normalized = normalizeCameraLabel(label);
+  if (!normalized) {
+    return false;
+  }
+  return [
+    "facetime",
+    "built-in",
+    "builtin",
+    "integrated",
+    "macbook air相机",
+    "macbook pro相机",
+    "内建",
+    "内置",
+  ].some((keyword) => normalized.includes(keyword));
+}
+
+function findPreferredVideoInput(devices) {
+  const selectedDevice = preferredCameraDeviceId
+    ? devices.find((device) => device.kind === "videoinput" && device.deviceId === preferredCameraDeviceId)
+    : null;
+  if (selectedDevice) {
+    return selectedDevice;
+  }
+
+  const namedPreferred =
+    devices.find((device) => device.kind === "videoinput" && device.label === PREFERRED_CAMERA_LABEL) || null;
+  if (namedPreferred) {
+    return namedPreferred;
+  }
+
+  const externalDevice = devices.find((device) => device.kind === "videoinput" && !isLikelyBuiltInCamera(device.label));
+  if (externalDevice) {
+    return externalDevice;
+  }
+
+  return devices[0] || null;
+}
+
+function getCameraOptionLabel(device, index, currentLabel = "") {
+  const trimmedLabel = device.label && device.label.trim() ? device.label.trim() : "";
+  if (trimmedLabel) {
+    return trimmedLabel;
+  }
+  if (currentLabel && device.deviceId && preferredCameraDeviceId && device.deviceId === preferredCameraDeviceId) {
+    return currentLabel;
+  }
+  return `摄像头 ${index + 1}`;
+}
+
+function syncCameraSelectOptions(devices, activeDeviceId = "", activeLabel = "") {
+  if (!cameraSelect) {
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  if (devices.length === 0) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "未发现可用摄像头";
+    fragment.appendChild(option);
+    cameraSelect.replaceChildren(fragment);
+    cameraSelect.disabled = true;
+    return;
+  }
+
+  devices.forEach((device, index) => {
+    const option = document.createElement("option");
+    option.value = device.deviceId;
+    option.textContent = getCameraOptionLabel(device, index, activeLabel);
+    if (
+      (activeDeviceId && device.deviceId === activeDeviceId) ||
+      (!activeDeviceId && preferredCameraDeviceId && device.deviceId === preferredCameraDeviceId) ||
+      (!activeDeviceId && !preferredCameraDeviceId && device.label === PREFERRED_CAMERA_LABEL)
+    ) {
+      option.selected = true;
+    }
+    fragment.appendChild(option);
+  });
+
+  cameraSelect.replaceChildren(fragment);
+  cameraSelect.disabled = false;
+  if (!cameraSelect.value) {
+    const preferredDevice = findPreferredVideoInput(devices);
+    if (preferredDevice && preferredDevice.deviceId) {
+      cameraSelect.value = preferredDevice.deviceId;
+    }
+  }
+}
+
+async function refreshCameraOptions(stream = cameraStream) {
+  const devices = await listVideoInputs().catch(() => []);
+  const videoTrack = getVideoTrack(stream);
+  const activeDeviceId = videoTrack ? getVideoTrackDeviceId(videoTrack) : "";
+  const activeLabel = videoTrack && videoTrack.label ? videoTrack.label.trim() : "";
+  syncCameraSelectOptions(devices, activeDeviceId, activeLabel);
+}
+
+function detachActiveCameraTrack() {
+  if (!activeCameraTrack) {
+    return;
+  }
+  activeCameraTrack.removeEventListener("ended", handleCameraTrackEnded);
+  activeCameraTrack = null;
+}
+
+function bindActiveCameraTrack(stream) {
+  detachActiveCameraTrack();
+  const videoTrack = getVideoTrack(stream);
+  if (!videoTrack) {
+    return;
+  }
+  videoTrack.addEventListener("ended", handleCameraTrackEnded);
+  activeCameraTrack = videoTrack;
+}
+
+async function openExactCameraStream(deviceId) {
+  return navigator.mediaDevices.getUserMedia({
+    video: { deviceId: { exact: deviceId } },
+    audio: false,
+  });
+}
+
+async function openPreferredCameraStream() {
+  const initialDevices = await listVideoInputs().catch(() => []);
+
+  if (preferredCameraDeviceId) {
+    const cachedDevice = initialDevices.find(
+      (device) => device.kind === "videoinput" && device.deviceId === preferredCameraDeviceId
+    );
+    if (cachedDevice) {
+      try {
+        return await openExactCameraStream(cachedDevice.deviceId);
+      } catch (error) {
+        preferredCameraDeviceId = "";
+      }
+    }
+  }
+
+  const preferredDevice = findPreferredVideoInput(initialDevices);
+  if (preferredDevice && preferredDevice.deviceId) {
+    preferredCameraDeviceId = preferredDevice.deviceId;
+    try {
+      return await openExactCameraStream(preferredDevice.deviceId);
+    } catch (error) {
+      preferredCameraDeviceId = "";
+    }
+  }
+
+  const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  const fallbackTrack = getVideoTrack(fallbackStream);
+  const fallbackLabel = fallbackTrack && fallbackTrack.label ? fallbackTrack.label.trim() : "";
+  if (fallbackLabel === PREFERRED_CAMERA_LABEL) {
+    const fallbackDeviceId = getVideoTrackDeviceId(fallbackTrack);
+    if (fallbackDeviceId) {
+      preferredCameraDeviceId = fallbackDeviceId;
+    }
+    return fallbackStream;
+  }
+
+  const refreshedDevices = await listVideoInputs().catch(() => []);
+  const refreshedPreferredDevice = findPreferredVideoInput(refreshedDevices);
+  if (!refreshedPreferredDevice || !refreshedPreferredDevice.deviceId) {
+    return fallbackStream;
+  }
+
+  preferredCameraDeviceId = refreshedPreferredDevice.deviceId;
+  const fallbackDeviceId = getVideoTrackDeviceId(fallbackTrack);
+  if (refreshedPreferredDevice.deviceId === fallbackDeviceId) {
+    return fallbackStream;
+  }
+
+  try {
+    const preferredStream = await openExactCameraStream(refreshedPreferredDevice.deviceId);
+    stopMediaStream(fallbackStream);
+    return preferredStream;
+  } catch (error) {
+    return fallbackStream;
+  }
+}
+
+async function syncCameraDeviceName(stream) {
+  const videoTrack = getVideoTrack(stream);
+  if (!videoTrack) {
+    setCameraDeviceLabel("未连接");
+    await refreshCameraOptions(null);
+    return "未连接";
+  }
+
+  let label = videoTrack.label && videoTrack.label.trim() ? videoTrack.label.trim() : "";
+  if (!label) {
+    const devices = await listVideoInputs().catch(() => []);
+    const matchedDevice = devices.find(
+      (device) => device.kind === "videoinput" && device.deviceId === getVideoTrackDeviceId(videoTrack)
+    );
+    label = matchedDevice && matchedDevice.label ? matchedDevice.label.trim() : "";
+  }
+
+  if (!label) {
+    label = "系统默认摄像头";
+  }
+
+  const deviceId = getVideoTrackDeviceId(videoTrack);
+  if (deviceId && (!preferredCameraDeviceId || label === PREFERRED_CAMERA_LABEL)) {
+    persistSelectedCameraDevice(deviceId);
+  }
+
+  setCameraDeviceLabel(label);
+  await refreshCameraOptions(stream);
+  return label;
+}
+
+function startCameraSnapshotPolling() {
+  if (cameraSnapshotTimer) {
+    window.clearInterval(cameraSnapshotTimer);
+  }
+  cameraSnapshotTimer = window.setInterval(() => {
+    void refreshCameraSnapshotCache();
+  }, 1800);
+}
+
+function stopCameraTracks() {
+  detachActiveCameraTrack();
+  if (cameraStream) {
+    stopMediaStream(cameraStream);
+    cameraStream = null;
+  }
   if (cameraPreview) {
     cameraPreview.srcObject = null;
   }
@@ -561,6 +915,86 @@ async function refreshCameraSnapshotCache() {
   }
 }
 
+async function restoreCameraPreview(reason = "镜头已切换，我继续陪你。") {
+  if (!autoMirrorMode) {
+    return;
+  }
+  if (cameraRecoveryPromise) {
+    await cameraRecoveryPromise;
+    return;
+  }
+
+  cameraRecoveryPromise = (async () => {
+    clearCameraSnapshotCache();
+    stopCameraTracks();
+    try {
+      cameraStream = await openPreferredCameraStream();
+      bindActiveCameraTrack(cameraStream);
+      cameraPreview.srcObject = cameraStream;
+      await cameraPreview.play();
+      const label = await syncCameraDeviceName(cameraStream);
+      await refreshCameraSnapshotCache();
+      startCameraSnapshotPolling();
+      cameraButton.textContent = "关掉镜头";
+      setStatus(`${reason} 当前摄像头是 ${label}。`);
+    } catch (error) {
+      autoMirrorMode = false;
+      clearCameraSnapshotCache();
+      stopCameraTracks();
+      cameraButton.textContent = "打开镜头";
+      setCameraDeviceLabel("未连接");
+      await refreshCameraOptions(null);
+      setStatus("当前没有可用摄像头了，请重新插好后再点一次。");
+    } finally {
+      cameraRecoveryPromise = null;
+    }
+  })();
+
+  await cameraRecoveryPromise;
+}
+
+function handleCameraTrackEnded() {
+  if (!autoMirrorMode) {
+    return;
+  }
+  void restoreCameraPreview("外接镜头断开了，我已经帮你切到可用镜头。");
+}
+
+async function handleCameraDeviceChange() {
+  if (cameraRecoveryPromise) {
+    return;
+  }
+
+  const devices = await listVideoInputs().catch(() => []);
+  syncCameraSelectOptions(devices, getVideoTrackDeviceId(getVideoTrack(cameraStream)), getVideoTrack(cameraStream)?.label || "");
+  if (!autoMirrorMode) {
+    return;
+  }
+  const videoTrack = getVideoTrack(cameraStream);
+  if (!videoTrack) {
+    void restoreCameraPreview("我在重新接回镜头。");
+    return;
+  }
+
+  const currentDeviceId = getVideoTrackDeviceId(videoTrack);
+  const currentStillExists = currentDeviceId
+    ? devices.some((device) => device.kind === "videoinput" && device.deviceId === currentDeviceId)
+    : devices.some((device) => device.kind === "videoinput" && device.label === videoTrack.label);
+  const preferredDevice = findPreferredVideoInput(devices);
+
+  if (!currentStillExists) {
+    void restoreCameraPreview("镜头设备变了，我已经帮你重新接上。");
+    return;
+  }
+
+  if (preferredDevice && preferredDevice.deviceId && preferredDevice.deviceId !== currentDeviceId) {
+    void restoreCameraPreview("检测到外接镜头可用了，我已经切回它。");
+    return;
+  }
+
+  void syncCameraDeviceName(cameraStream);
+}
+
 function scheduleAutoVoiceRound(delayMs = 450) {
   if (!autoMirrorMode || !cameraStream || isRecording) {
     return;
@@ -579,17 +1013,17 @@ async function startCameraPreview() {
     throw new Error("这个浏览器不支持网页摄像头。");
   }
 
-  cameraStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  cameraStream = await openPreferredCameraStream();
+  bindActiveCameraTrack(cameraStream);
   cameraPreview.srcObject = cameraStream;
   await cameraPreview.play();
+  const label = await syncCameraDeviceName(cameraStream);
   autoMirrorMode = true;
   await refreshCameraSnapshotCache();
-  cameraSnapshotTimer = window.setInterval(() => {
-    void refreshCameraSnapshotCache();
-  }, 1800);
+  startCameraSnapshotPolling();
   cameraButton.textContent = "关掉镜头";
   pushTabletScene("listening", { source: "camera-start" });
-  setStatus("镜头已经开好了，我会直接听你说，也会持续记住最近一帧画面。");
+  setStatus(`镜头已经开好了，当前摄像头是 ${label}。我会直接听你说，也会持续记住最近一帧画面。`);
   if (!isRecording) {
     await startVoiceRecording({ autoStarted: true });
   }
@@ -603,6 +1037,8 @@ function stopCameraPreview() {
   }
   stopCameraTracks();
   cameraButton.textContent = "打开镜头";
+  setCameraDeviceLabel("未连接");
+  void refreshCameraOptions(null);
   queueTabletScene("idle", 0, { source: "camera-stop" });
   setStatus("镜头已经关上了；想继续做视频问答再点一次。");
 }
@@ -821,7 +1257,19 @@ async function startVoiceRecording(options = {}) {
             : "我在整理你的话，字幕会边走边出来。"
       );
       let tabletReplyStarted = false;
-      await streamVoice(audioBlob, async ({ type, text, delta, reply, audio_url: audioUrl, error, assistant_label: assistantLabelFromEvent, ui_effect: uiEffect }) => {
+      await streamVoice(
+        audioBlob,
+        async ({
+          type,
+          text,
+          delta,
+          reply,
+          audio_url: audioUrl,
+          error,
+          assistant_label: assistantLabelFromEvent,
+          ui_effect: uiEffect,
+          scheduled_reminder: scheduledReminder,
+        }) => {
         if (type === "transcript") {
           setAssistantLabel(assistantLabelFromEvent);
           if (pendingUserVoiceBody) {
@@ -855,6 +1303,9 @@ async function startVoiceRecording(options = {}) {
             tabletReplyStarted = true;
           }
           applyInteractionPayload({ ui_effect: uiEffect });
+          if (scheduledReminder) {
+            setTabletReminder(scheduledReminder);
+          }
           if (pendingAgentVoiceBody) {
             pendingAgentVoiceBody.textContent = reply;
           }
@@ -876,7 +1327,11 @@ async function startVoiceRecording(options = {}) {
         if (type === "error") {
           throw new Error(error || "语音流式回复失败");
         }
-      }, frameBlob, regionBlobs, cameraWasActive);
+        },
+        frameBlob,
+        regionBlobs,
+        cameraWasActive
+      );
       if (autoMirrorMode && cameraStream) {
         setStatus("镜头还开着，我继续等你下一句。");
         scheduleAutoVoiceRound();
@@ -930,6 +1385,9 @@ chatForm.addEventListener("submit", async (event) => {
       const replyPayload = await sendImage(file, note);
       reply = replyPayload.reply;
       applyInteractionPayload(replyPayload);
+      if (replyPayload.scheduled_reminder) {
+        setTabletReminder(replyPayload.scheduled_reminder);
+      }
       if (replyPayload.audio_url) {
         setAssistantLabel(replyPayload.assistant_label);
         pushTabletScene("reply", { source: "image-reply" });
@@ -957,6 +1415,9 @@ chatForm.addEventListener("submit", async (event) => {
       const replyPayload = await sendChat(draft);
       reply = replyPayload.reply;
       applyInteractionPayload(replyPayload);
+      if (replyPayload.scheduled_reminder) {
+        setTabletReminder(replyPayload.scheduled_reminder);
+      }
       setAssistantLabel(replyPayload.assistant_label);
       appendMessage("agent", reply);
       pushTabletScene("reply", { source: "text-reply" });
@@ -1004,12 +1465,39 @@ cameraButton.addEventListener("click", async () => {
     await toggleCameraPreview();
   } catch (error) {
     stopCameraTracks();
+    setCameraDeviceLabel("未连接");
     cameraButton.textContent = "打开镜头";
     appendMessage("system", error.message || "没拿到摄像头权限。");
     queueTabletScene("idle", 0, { source: "camera-error" });
     setStatus("先给浏览器摄像头权限，我们再试一次。");
   }
 });
+
+if (cameraSelect) {
+  cameraSelect.addEventListener("change", async () => {
+    const deviceId = cameraSelect.value;
+    persistSelectedCameraDevice(deviceId);
+    if (!deviceId) {
+      setStatus("我先继续用当前可用镜头。");
+      return;
+    }
+
+    if (autoMirrorMode) {
+      await restoreCameraPreview("我已经帮你切到你选的镜头。");
+      return;
+    }
+
+    const devices = await listVideoInputs().catch(() => []);
+    const selectedDevice = devices.find((device) => device.kind === "videoinput" && device.deviceId === deviceId);
+    const selectedLabel = selectedDevice && selectedDevice.label ? selectedDevice.label.trim() : "你选的摄像头";
+    setCameraDeviceLabel(selectedLabel);
+    setStatus(`下次打开镜头时，我会优先连接 ${selectedLabel}。`);
+  });
+}
+
+if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
+  navigator.mediaDevices.addEventListener("devicechange", handleCameraDeviceChange);
+}
 
 voiceButton.addEventListener("click", async () => {
   try {
@@ -1037,6 +1525,7 @@ async function pollDueReminders() {
     for (const reminder of payload.reminders) {
       setAssistantLabel(reminder.assistant_label || assistantLabel);
       applyInteractionPayload(reminder);
+      markTabletReminderTriggered(reminder);
       pushTabletScene("reply", { source: "reminder" });
       const audioPlayer = appendAgentVoiceReply(reminder.message, reminder.audio_url);
       await queueAudioPlayback(
@@ -1055,6 +1544,7 @@ window.setInterval(() => {
   void pollDueReminders();
 }, 5000);
 void pollDueReminders();
+void refreshCameraOptions();
 pushTabletScene("idle", { source: "page-load" });
 
 window.addEventListener("beforeunload", () => {
@@ -1062,4 +1552,7 @@ window.addEventListener("beforeunload", () => {
   stopVoiceTracks();
   clearCameraSnapshotCache();
   stopCameraTracks();
+  if (navigator.mediaDevices && typeof navigator.mediaDevices.removeEventListener === "function") {
+    navigator.mediaDevices.removeEventListener("devicechange", handleCameraDeviceChange);
+  }
 });

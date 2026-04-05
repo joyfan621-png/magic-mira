@@ -171,6 +171,42 @@ class FakeMarkdownReplyClient:
         self.chat = type("ChatAPI", (), {"completions": FakeMarkdownReplyCompletions()})()
 
 
+class FakeMaskTimerOfferCompletions:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def create(
+        self,
+        model: str,
+        messages: list[dict[str, object]],
+        tools: list[dict[str, object]] | None = None,
+        extra_body: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools or [],
+                "extra_body": extra_body or {},
+            }
+        )
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "你现在像是在敷面膜耶，要不要我帮你开始15分钟计时？",
+                    }
+                }
+            ]
+        }
+
+
+class FakeMaskTimerOfferClient:
+    def __init__(self) -> None:
+        self.chat = type("ChatAPI", (), {"completions": FakeMaskTimerOfferCompletions()})()
+
+
 class AgentTests(unittest.TestCase):
     def test_should_end_session_detects_bye(self) -> None:
         self.assertTrue(should_end_session("拜拜啦"))
@@ -215,6 +251,7 @@ class AgentTests(unittest.TestCase):
 
             self.assertIn("100字以内", prompt)
             self.assertIn("最多5句", prompt)
+            self.assertIn("直接说你能确认到的现象和区域", prompt)
 
     def test_respond_shortens_overlong_model_reply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -336,7 +373,7 @@ class AgentTests(unittest.TestCase):
 
         self.assertTrue(args.voice)
 
-    def test_photo_trigger_prompts_for_selfie_path(self) -> None:
+    def test_photo_trigger_uses_face_to_face_copy_without_photo_upload_words(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
             (project_root / "memory" / "diary").mkdir(parents=True)
@@ -356,7 +393,9 @@ class AgentTests(unittest.TestCase):
 
             reply = agent.respond("看看我的脸")
 
-            self.assertIn("发张照片", reply)
+            self.assertIn("靠近", reply)
+            self.assertNotIn("照片", reply)
+            self.assertNotIn("图片", reply)
             self.assertTrue(agent.awaiting_photo)
 
     def test_camera_mode_does_not_fall_back_to_send_photo_prompt(self) -> None:
@@ -488,6 +527,142 @@ class AgentTests(unittest.TestCase):
             self.assertNotIn("照片", reply)
             self.assertIn("你下巴有点红", reply)
 
+    def test_prepare_visual_reply_keeps_concrete_observation_and_drops_media_request_wording(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="aiping",
+                api_key="test-key",
+                chat_model="Qwen3-14B",
+                vision_model="Qwen2.5-VL-32B-Instruct",
+                base_url="https://aiping.cn/api/v1/chat/completions",
+            )
+            agent = MirrorAgent(config=config, client=object())
+
+            reply = agent._prepare_visual_reply(
+                "这张图片里你下巴有点红，不过还要再发一张更近一点的照片，我才能看得更清楚。"
+            )
+
+            self.assertNotIn("图片", reply)
+            self.assertNotIn("照片", reply)
+            self.assertNotIn("发一张", reply)
+            self.assertNotIn("看得更清楚", reply)
+            self.assertIn("你下巴有点红", reply)
+
+    def test_prepare_visual_reply_drops_uncertainty_prefix_but_keeps_region_observation(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="aiping",
+                api_key="test-key",
+                chat_model="Qwen3-14B",
+                vision_model="Qwen2.5-VL-32B-Instruct",
+                base_url="https://aiping.cn/api/v1/chat/completions",
+            )
+            agent = MirrorAgent(config=config, client=object())
+
+            reply = agent._prepare_visual_reply("画面有点模糊，不过我看到你左脸颊靠鼻翼这块有点泛红，鼻头也有点油。")
+
+            self.assertNotIn("画面", reply)
+            self.assertNotIn("模糊", reply)
+            self.assertIn("左脸颊靠鼻翼这块有点泛红", reply)
+            self.assertIn("鼻头也有点油", reply)
+
+    def test_mask_activity_without_minutes_uses_default_fifteen_minute_reminder(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="")
+            agent = MirrorAgent(config=config, client=FakeNonStreamingClient())
+
+            reply = agent.respond("我刚敷上面膜了")
+            due = agent.reminder_scheduler.pop_due()
+
+            self.assertIn("15 分钟后", reply)
+            self.assertEqual([], due)
+
+    def test_mask_offer_confirmation_schedules_reminder_after_visual_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            image_path = project_root / "camera-frame.jpg"
+            image_path.write_bytes(b"fake-image")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="aiping",
+                api_key="test-key",
+                chat_model="Qwen3-14B",
+                vision_model="Qwen2.5-VL-32B-Instruct",
+                base_url="https://aiping.cn/api/v1/chat/completions",
+            )
+            agent = MirrorAgent(config=config, client=FakeMaskTimerOfferClient())
+
+            offer_reply = agent.respond("我现在状态怎么样", image_paths=[str(image_path)])
+            confirm_reply = agent.respond("好呀，开始吧")
+
+            self.assertIn("15分钟计时", offer_reply)
+            self.assertIn("15 分钟后", confirm_reply)
+            self.assertIsNone(agent.pending_timer_offer)
+
+    def test_mask_reminder_request_with_camera_frame_schedules_instead_of_multimodal_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            image_path = project_root / "camera-frame.jpg"
+            image_path.write_bytes(b"fake-image")
+
+            config = AppConfig(project_root=project_root, api_key="")
+            agent = MirrorAgent(config=config, client=FakeNonStreamingClient())
+
+            reply = agent.respond("我刚敷上面膜了", image_paths=[str(image_path)], camera_active=True)
+
+            self.assertIn("15 分钟后", reply)
+            self.assertEqual(1, len(agent.reminder_scheduler._items))
+
+    def test_stream_mask_reminder_request_with_camera_frame_schedules_instead_of_multimodal_chat(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            image_path = project_root / "camera-frame.jpg"
+            image_path.write_bytes(b"fake-image")
+
+            config = AppConfig(project_root=project_root, api_key="")
+            agent = MirrorAgent(config=config, client=FakeNonStreamingClient())
+
+            chunks = list(agent.stream_respond("我刚敷上面膜了", image_paths=[str(image_path)], camera_active=True))
+
+            self.assertEqual(
+                "好呀，我已经替你记下了。15 分钟后，我会提醒你：面膜时间到了，记得摘掉并轻轻按摩一下哦。",
+                "".join(chunks),
+            )
+            self.assertEqual(1, len(agent.reminder_scheduler._items))
+
     def test_stream_respond_can_include_camera_frame_as_multimodal_context(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             project_root = Path(temp_dir)
@@ -516,7 +691,8 @@ class AgentTests(unittest.TestCase):
             messages = stream_call["messages"]
             self.assertEqual("system", messages[0]["role"])
             self.assertEqual("user", messages[-1]["role"])
-            self.assertEqual("我现在皮肤状态怎么样", messages[-1]["content"])
+            self.assertTrue(messages[-1]["content"].startswith("我现在皮肤状态怎么样"))
+            self.assertIn("当前这一轮你面前可参考的视角顺序如下", messages[-1]["content"])
             self.assertEqual(1, len(messages[-1]["images"]))
             self.assertIn("今天看着还行。", [item["content"] for item in agent.history if item["role"] == "assistant"])
 
@@ -608,3 +784,36 @@ class AgentTests(unittest.TestCase):
             self.assertIn("左脸颊局部", message["content"][0]["text"])
             self.assertEqual("image_url", message["content"][1]["type"])
             self.assertTrue(message["content"][1]["image_url"]["url"].startswith("data:image/jpeg;base64,"))
+
+    def test_build_user_message_adds_direct_observation_guidance_for_ollama_multimodal_turns(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            full_face = project_root / "mirror-region-full-face.jpg"
+            left_cheek = project_root / "mirror-region-left-cheek.jpg"
+            full_face.write_bytes(b"fake-image")
+            left_cheek.write_bytes(b"fake-image")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="ollama",
+                api_key="",
+                chat_model="gemma4:e2b",
+                vision_model="gemma4:e2b",
+                base_url="http://127.0.0.1:11434",
+            )
+            agent = MirrorAgent(config=config, client=object())
+
+            message = agent._build_user_message(
+                "我脸上这里长了个痘痘",
+                image_paths=[str(full_face), str(left_cheek)],
+            )
+
+            self.assertEqual("user", message["role"])
+            self.assertIn("完整画面", message["content"])
+            self.assertIn("左脸颊局部", message["content"])
+            self.assertIn("直接说你能确认到的现象、区域和轻重", message["content"])
+            self.assertNotIn("这一轮还不够稳", message["content"])

@@ -41,9 +41,16 @@
             </div>
             <div class="camera-actions">
               <a class="ghost-button tablet-link" href="/tablet" target="_blank" rel="noreferrer">打开平板页</a>
+              <label class="camera-select-wrap" for="camera-select">
+                <span class="sr-only">选择摄像头</span>
+                <select id="camera-select" class="camera-select">
+                  <option value="">选择摄像头</option>
+                </select>
+              </label>
               <button id="camera-button" class="ghost-button" type="button">打开镜头</button>
             </div>
           </div>
+          <p id="camera-device-name" class="camera-device-name">当前摄像头：未连接</p>
           <div class="camera-preview-shell">
             <video id="camera-preview" class="camera-preview" autoplay muted playsinline></video>
             <canvas id="camera-canvas" class="camera-canvas" aria-hidden="true"></canvas>

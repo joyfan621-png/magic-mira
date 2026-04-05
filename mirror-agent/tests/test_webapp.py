@@ -14,6 +14,7 @@ class StubAgent:
         self.voice_image_paths: list[list[str]] = []
         self.voice_camera_flags: list[bool] = []
         self.closed_with: list[str] = []
+        self.next_scheduled_reminder: dict[str, str] | None = None
 
     def respond(
         self,
@@ -34,6 +35,11 @@ class StubAgent:
     def close_session(self, trigger_text: str) -> tuple[str, Path]:
         self.closed_with.append(trigger_text)
         return "bye-reply", Path("/tmp/fake-diary.md")
+
+    def consume_last_scheduled_reminder(self) -> dict[str, str] | None:
+        reminder = self.next_scheduled_reminder
+        self.next_scheduled_reminder = None
+        return reminder
 
     def stream_respond(
         self,
@@ -100,6 +106,8 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("镜面精灵屏", html)
         self.assertIn('id="tablet-stage"', html)
         self.assertIn('id="tablet-scene-label"', html)
+        self.assertIn('id="tablet-reminder"', html)
+        self.assertIn('id="tablet-countdown-value"', html)
 
     def test_chat_route_returns_json_reply(self) -> None:
         response = self.client.post("/api/chat", json={"message": "今天脸有点干"})
@@ -108,6 +116,69 @@ class WebAppTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual("reply:今天脸有点干", payload["reply"])
         self.assertEqual("我", payload["assistant_label"])
+
+    def test_chat_route_surfaces_scheduled_reminder_payload(self) -> None:
+        self.stub_agent.next_scheduled_reminder = {
+            "id": "timer-1",
+            "message": "面膜时间到了，记得摘掉并轻轻按摩一下哦。",
+            "due_at": "2026-04-05T12:15:00",
+        }
+
+        response = self.client.post("/api/chat", json={"message": "15分钟后提醒我摘面膜"})
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("timer-1", payload["scheduled_reminder"]["id"])
+        self.assertEqual("2026-04-05T12:15:00", payload["scheduled_reminder"]["due_at"])
+
+    def test_tablet_state_route_can_store_and_return_shared_state(self) -> None:
+        update_response = self.client.post(
+            "/api/tablet-state",
+            json={
+                "scene": "reply",
+                "reminder": {
+                    "id": "timer-1",
+                    "message": "面膜时间到了，记得摘掉并轻轻按摩一下哦。",
+                    "due_at": "2026-04-05T12:15:00",
+                },
+            },
+        )
+
+        self.assertEqual(200, update_response.status_code)
+        update_payload = update_response.get_json()
+        self.assertEqual("reply", update_payload["scene"])
+        self.assertEqual("timer-1", update_payload["reminder"]["id"])
+
+        fetch_response = self.client.get("/api/tablet-state")
+
+        self.assertEqual(200, fetch_response.status_code)
+        fetch_payload = fetch_response.get_json()
+        self.assertEqual("reply", fetch_payload["scene"])
+        self.assertEqual("2026-04-05T12:15:00", fetch_payload["reminder"]["due_at"])
+
+    def test_tablet_state_route_merges_partial_updates(self) -> None:
+        self.client.post(
+            "/api/tablet-state",
+            json={
+                "scene": "thinking",
+                "reminder": {
+                    "id": "timer-2",
+                    "message": "提醒时间到了哦。",
+                    "due_at": "2026-04-05T12:30:00",
+                },
+            },
+        )
+
+        response = self.client.post(
+            "/api/tablet-state",
+            json={"lastTriggeredReminder": {"id": "timer-2", "message": "提醒时间到了哦。"}},
+        )
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("thinking", payload["scene"])
+        self.assertEqual("timer-2", payload["reminder"]["id"])
+        self.assertEqual("timer-2", payload["lastTriggeredReminder"]["id"])
 
     def test_image_route_requires_file(self) -> None:
         response = self.client.post("/api/image", data={"note": "鼻翼有点红"})
@@ -240,6 +311,24 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('"text": "今天脸有点干"', body)
         self.assertIn('"reply": "reply:今天脸有点干"', body)
 
+    def test_voice_stream_route_emits_scheduled_reminder_payload(self) -> None:
+        self.stub_agent.next_scheduled_reminder = {
+            "id": "timer-2",
+            "message": "提醒时间到了哦。",
+            "due_at": "2026-04-05T12:30:00",
+        }
+
+        data = {
+            "audio": (io.BytesIO(b"fake-audio-bytes"), "voice.webm"),
+        }
+
+        response = self.client.post("/api/voice-chat-stream", data=data, content_type="multipart/form-data")
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn('"scheduled_reminder": {"id": "timer-2"', body)
+        self.assertIn('"due_at": "2026-04-05T12:30:00"', body)
+
     def test_voice_route_passes_optional_camera_frame_to_agent(self) -> None:
         data = {
             "audio": (io.BytesIO(b"fake-audio-bytes"), "voice.webm"),
@@ -297,7 +386,7 @@ class WebAppTests(unittest.TestCase):
         scheduler = ReminderScheduler()
         scheduler.schedule_in_minutes(
             minutes=0,
-            message="面膜时间到了，记得摘掉哦。",
+            message="面膜时间到了，记得摘掉并轻轻按摩一下哦。",
             source_text="我刚敷上了面膜，15分钟后提醒我摘掉。",
         )
         client = create_app(
@@ -312,5 +401,5 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         payload = response.get_json()
         self.assertEqual(1, len(payload["reminders"]))
-        self.assertEqual("面膜时间到了，记得摘掉哦。", payload["reminders"][0]["message"])
+        self.assertEqual("面膜时间到了，记得摘掉并轻轻按摩一下哦。", payload["reminders"][0]["message"])
         self.assertTrue(payload["reminders"][0]["audio_url"].startswith("/audio/"))

@@ -1,7 +1,13 @@
 const tabletStageEl = document.getElementById("tablet-stage");
 const tabletSceneLabelEl = document.getElementById("tablet-scene-label");
+const tabletReminderEl = document.getElementById("tablet-reminder");
+const tabletCountdownLabelEl = document.getElementById("tablet-countdown-label");
+const tabletCountdownValueEl = document.getElementById("tablet-countdown-value");
+const tabletReminderMetaEl = document.getElementById("tablet-reminder-meta");
+const tabletReminderMessageEl = document.getElementById("tablet-reminder-message");
 
 const TABLET_STATE_KEY = "mirror-tablet-state";
+const TABLET_TRIGGERED_REMINDER_WINDOW_MS = 15000;
 const SCENE_VARIANTS = {
   "startup": "crown-trace",
   "listening": "wand-sweep",
@@ -21,6 +27,10 @@ const tabletChannel =
   typeof BroadcastChannel === "function" ? new BroadcastChannel("mirror-tablet-display") : null;
 
 let settleTimer = null;
+let reminderRenderTimer = null;
+let lastPlayedReminderId = "";
+let tabletStatePollInFlight = false;
+let latestTabletState = readStoredState();
 
 function crownSvg() {
   return `
@@ -110,17 +120,83 @@ const stageTemplates = {
   `,
 };
 
-function readStoredScene() {
+function readStoredState() {
   try {
     const raw = localStorage.getItem(TABLET_STATE_KEY);
     if (!raw) {
-      return "idle";
+      return {};
     }
     const payload = JSON.parse(raw);
-    return payload.scene in SCENE_VARIANTS ? payload.scene : "idle";
+    return payload && typeof payload === "object" ? payload : {};
   } catch (error) {
-    return "idle";
+    return {};
   }
+}
+
+function rememberTabletState(state) {
+  if (!state || typeof state !== "object") {
+    return latestTabletState;
+  }
+
+  latestTabletState = { ...latestTabletState, ...state };
+  try {
+    localStorage.setItem(TABLET_STATE_KEY, JSON.stringify(latestTabletState));
+  } catch (error) {
+    // localStorage can be unavailable in private contexts; rendering should still continue in memory.
+  }
+  return latestTabletState;
+}
+
+function normalizeScene(state) {
+  const scene = state?.scene;
+  return typeof scene === "string" && scene in SCENE_VARIANTS ? scene : "idle";
+}
+
+function normalizeReminder(reminder) {
+  if (!reminder || typeof reminder !== "object") {
+    return null;
+  }
+
+  const dueAt = String(reminder.due_at || reminder.dueAt || "").trim();
+  const message = String(reminder.message || "").trim();
+  const id = String(reminder.id || "").trim();
+
+  if (!dueAt || !message) {
+    return null;
+  }
+
+  return {
+    id,
+    message,
+    dueAt,
+  };
+}
+
+function normalizeTriggeredReminder(reminder) {
+  if (!reminder || typeof reminder !== "object") {
+    return null;
+  }
+
+  const message = String(reminder.message || "").trim();
+  if (!message) {
+    return null;
+  }
+
+  const rawTriggeredAt = reminder.triggered_at || reminder.triggeredAt || reminder.timestamp;
+  const parsedTriggeredAt =
+    typeof rawTriggeredAt === "number" ? rawTriggeredAt : Date.parse(String(rawTriggeredAt || "").trim());
+
+  return {
+    id: String(reminder.id || message).trim(),
+    message,
+    dueAt: String(reminder.due_at || reminder.dueAt || "").trim(),
+    audioUrl: String(reminder.audio_url || reminder.audioUrl || "").trim(),
+    triggeredAt: Number.isFinite(parsedTriggeredAt) ? parsedTriggeredAt : Date.now(),
+  };
+}
+
+function readStoredScene() {
+  return normalizeScene(latestTabletState);
 }
 
 function settleSceneTarget() {
@@ -162,15 +238,122 @@ function renderScene(scene) {
   }
 }
 
-function handleIncomingScene(scene) {
-  renderScene(scene);
+function formatRemainingTime(remainingMs) {
+  const totalSeconds = Math.max(0, Math.ceil(remainingMs / 1000));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function formatDueTime(dueAt) {
+  const dueDate = new Date(dueAt);
+  if (Number.isNaN(dueDate.getTime())) {
+    return "";
+  }
+
+  return new Intl.DateTimeFormat("zh-CN", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(dueDate);
+}
+
+function playReminderAudio(reminder) {
+  if (!reminder || !reminder.audioUrl || !reminder.id || reminder.id === lastPlayedReminderId) {
+    return;
+  }
+
+  lastPlayedReminderId = reminder.id;
+  const audio = new Audio(reminder.audioUrl);
+  audio.preload = "auto";
+  void audio.play().catch(() => {});
+}
+
+function renderReminder(reminder, lastTriggeredReminder) {
+  const activeReminder = normalizeReminder(reminder);
+  const triggeredReminder = normalizeTriggeredReminder(lastTriggeredReminder);
+  const hasFreshTriggeredReminder =
+    triggeredReminder && Date.now() - triggeredReminder.triggeredAt <= TABLET_TRIGGERED_REMINDER_WINDOW_MS;
+
+  if (!tabletReminderEl || !tabletCountdownLabelEl || !tabletCountdownValueEl || !tabletReminderMetaEl || !tabletReminderMessageEl) {
+    return;
+  }
+
+  if (hasFreshTriggeredReminder) {
+    tabletReminderEl.hidden = false;
+    tabletReminderEl.dataset.state = "due";
+    tabletCountdownLabelEl.textContent = "提醒到了";
+    tabletCountdownValueEl.textContent = "00:00";
+    tabletReminderMetaEl.textContent = triggeredReminder.dueAt ? `${formatDueTime(triggeredReminder.dueAt)} 已到` : "现在提醒你";
+    tabletReminderMessageEl.textContent = triggeredReminder.message;
+    playReminderAudio(triggeredReminder);
+    return;
+  }
+
+  if (!activeReminder) {
+    tabletReminderEl.hidden = true;
+    tabletReminderEl.dataset.state = "";
+    tabletCountdownLabelEl.textContent = "倒计时";
+    tabletCountdownValueEl.textContent = "00:00";
+    tabletReminderMetaEl.textContent = "";
+    tabletReminderMessageEl.textContent = "";
+    return;
+  }
+
+  const dueAtMs = new Date(activeReminder.dueAt).getTime();
+  const remainingMs = Number.isNaN(dueAtMs) ? 0 : dueAtMs - Date.now();
+  const dueTimeLabel = formatDueTime(activeReminder.dueAt);
+
+  tabletReminderEl.hidden = false;
+  tabletReminderEl.dataset.state = remainingMs <= 0 ? "due" : "counting";
+  tabletCountdownLabelEl.textContent = remainingMs <= 0 ? "马上提醒" : "倒计时";
+  tabletCountdownValueEl.textContent = formatRemainingTime(remainingMs);
+  tabletReminderMetaEl.textContent = dueTimeLabel ? `${dueTimeLabel} 提醒你` : "提醒已设置";
+  tabletReminderMessageEl.textContent = activeReminder.message;
+}
+
+function renderFromState(state) {
+  const safeState = rememberTabletState(state);
+  renderScene(normalizeScene(safeState));
+  renderReminder(safeState.reminder, safeState.lastTriggeredReminder);
+}
+
+function handleIncomingState(state) {
+  renderFromState(state);
+}
+
+async function pollTabletStateFromServer() {
+  if (tabletStatePollInFlight) {
+    return;
+  }
+
+  tabletStatePollInFlight = true;
+  try {
+    const response = await fetch("/api/tablet-state", {
+      method: "GET",
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return;
+    }
+    const payload = await response.json();
+    handleIncomingState(payload);
+  } catch (error) {
+    return;
+  } finally {
+    tabletStatePollInFlight = false;
+  }
 }
 
 if (tabletChannel) {
   tabletChannel.addEventListener("message", (event) => {
-    const nextScene = event.data?.scene;
-    if (typeof nextScene === "string") {
-      handleIncomingScene(nextScene);
+    if (event.data && typeof event.data === "object") {
+      handleIncomingState(event.data);
     }
   });
 }
@@ -181,12 +364,18 @@ window.addEventListener("storage", (event) => {
   }
   try {
     const payload = JSON.parse(event.newValue);
-    if (typeof payload.scene === "string") {
-      handleIncomingScene(payload.scene);
-    }
+    handleIncomingState(payload);
   } catch (error) {
     return;
   }
 });
 
 renderScene("startup");
+renderReminder(latestTabletState.reminder, latestTabletState.lastTriggeredReminder);
+reminderRenderTimer = window.setInterval(() => {
+  renderReminder(latestTabletState.reminder, latestTabletState.lastTriggeredReminder);
+}, 1000);
+void pollTabletStateFromServer();
+window.setInterval(() => {
+  void pollTabletStateFromServer();
+}, 1000);

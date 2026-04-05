@@ -24,6 +24,42 @@ IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 MAX_REPLY_CHARS = 100
 MAX_REPLY_SENTENCES = 5
 SENTENCE_ENDINGS = "。！？!?"
+DEFAULT_MASK_TIMER_MINUTES = 15
+DEFAULT_MASK_REMINDER_MESSAGE = "面膜时间到了，记得摘掉并轻轻按摩一下哦。"
+REMINDER_TRIGGER_KEYWORDS = ("提醒", "计时", "定时", "倒计时", "闹钟", "叫我", "到点", "记一下")
+MASK_ACTIVITY_PATTERNS = (
+    r"我.*(?:在|正|刚|刚刚|已经).*(?:敷|贴).{0,2}面膜",
+    r"我.*(?:敷上|贴上|敷好了|贴好了).{0,2}面膜",
+    r"(?:刚|刚刚|现在|已经)?(?:敷|贴)上了?.{0,2}面膜",
+    r"(?:面膜).*(?:敷上|贴上|上脸)了",
+)
+AFFIRMATIVE_PATTERNS = (
+    r"^(?:好|好呀|好的|好啊|要|要的|开始|开始吧|可以|行|嗯|嗯嗯|来吧|开吧|帮我计时|开始计时)+[啦呀啊吧哦]?$",
+    r"(?:帮我|给我).*(?:计时|开始)",
+)
+DECLINE_PATTERNS = (
+    r"^(?:不用|不用了|不要|先不用|先不要|先别|别了|不需要)[啦呀啊吧哦]?$",
+    r"(?:先别|不用).*(?:计时|提醒)",
+)
+MASK_TIMER_OFFER_PATTERNS = (
+    r"面膜.*(?:15\s*分钟|十五分钟).*(?:计时|提醒).*(?:要不要|好吗|行吗)",
+    r"(?:要不要|要我|要不).*(?:15\s*分钟|十五分钟).*(?:计时|提醒)",
+    r"面膜.*(?:要不要|要我|要不).*(?:计时|提醒)",
+)
+CHINESE_NUMBER_MAP = {
+    "零": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
+CHINESE_UNIT_MAP = {"十": 10, "百": 100}
 
 
 def should_end_session(text: str) -> bool:
@@ -61,14 +97,79 @@ def parse_image_command(raw: str) -> tuple[str, str]:
 
 def parse_reminder_request(text: str) -> dict[str, Any] | None:
     normalized = text.strip()
-    if "提醒" not in normalized:
+    minutes = _extract_minutes(normalized)
+    if _is_mask_timer_request(normalized):
+        return {
+            "minutes": minutes or DEFAULT_MASK_TIMER_MINUTES,
+            "message": DEFAULT_MASK_REMINDER_MESSAGE,
+        }
+    if not any(keyword in normalized for keyword in REMINDER_TRIGGER_KEYWORDS):
         return None
-    match = re.search(r"(\d{1,3})\s*分钟", normalized)
-    if not match:
+    if minutes is None:
         return None
-    minutes = int(match.group(1))
-    message = "面膜时间到了，记得摘掉哦。" if "面膜" in normalized else "提醒时间到了哦。"
+    message = DEFAULT_MASK_REMINDER_MESSAGE if "面膜" in normalized else "提醒时间到了哦。"
     return {"minutes": minutes, "message": message}
+
+
+def _extract_minutes(text: str) -> int | None:
+    digit_match = re.search(r"(\d{1,3})\s*(?:分钟|min|mins|minute|minutes)", text, flags=re.IGNORECASE)
+    if digit_match:
+        return int(digit_match.group(1))
+
+    chinese_match = re.search(r"([零一二两三四五六七八九十百]{1,6})\s*分钟", text)
+    if not chinese_match:
+        return None
+    return _parse_chinese_number(chinese_match.group(1))
+
+
+def _parse_chinese_number(token: str) -> int | None:
+    total = 0
+    current = 0
+    digits_seen = False
+    for char in token:
+        if char in CHINESE_NUMBER_MAP:
+            current = CHINESE_NUMBER_MAP[char]
+            digits_seen = True
+            continue
+        unit = CHINESE_UNIT_MAP.get(char)
+        if unit is None:
+            return None
+        if current == 0:
+            current = 1
+        total += current * unit
+        current = 0
+    if not digits_seen and total == 0:
+        return None
+    return total + current
+
+
+def _is_mask_timer_request(text: str) -> bool:
+    if "面膜" not in text:
+        return False
+    if any(keyword in text for keyword in REMINDER_TRIGGER_KEYWORDS):
+        return True
+    return any(re.search(pattern, text) for pattern in MASK_ACTIVITY_PATTERNS)
+
+
+def _normalize_intent_text(text: str) -> str:
+    return re.sub(r"[\s，,。！？!?~～:：；;、]+", "", text)
+
+
+def _looks_like_affirmation(text: str) -> bool:
+    normalized = _normalize_intent_text(text)
+    return any(re.search(pattern, normalized) for pattern in AFFIRMATIVE_PATTERNS)
+
+
+def _looks_like_decline(text: str) -> bool:
+    normalized = _normalize_intent_text(text)
+    return any(re.search(pattern, normalized) for pattern in DECLINE_PATTERNS)
+
+
+def _looks_like_mask_timer_offer(text: str) -> bool:
+    normalized = _normalize_intent_text(text)
+    if "面膜" not in normalized:
+        return False
+    return any(re.search(pattern, normalized) for pattern in MASK_TIMER_OFFER_PATTERNS)
 
 
 class MirrorAgent:
@@ -92,6 +193,8 @@ class MirrorAgent:
         )
         self.history: list[dict[str, str]] = []
         self.awaiting_photo = False
+        self.pending_timer_offer: dict[str, Any] | None = None
+        self.last_scheduled_reminder: dict[str, str] | None = None
 
     def build_memory_context(self) -> str:
         return self.memory_store.build_memory_context(limit=3)
@@ -110,6 +213,9 @@ class MirrorAgent:
                 "- 需要查知识库时用 skincare_knowledge。",
                 "- 用户发图片路径时可以用 skin_analyze。",
                 "- 当前回合如果附带了摄像头画面，可以结合画面回答，但只做皮肤表面观察，不诊断疾病。",
+                "- 当前回合如果附带了画面，要像照镜子时直接看着本人说话，不要提图片、照片、自拍、上传、画面或镜头这些媒介词。",
+                "- 用户说“这里”“这块”“这个痘”时，要尽量落到具体脸部区域；不够确定也先给最接近的范围，直接说你能确认到的现象和区域，不要向用户汇报自己看不清、没抓稳或需要重拍。",
+                "- 如果当前回合附带了画面，而且你能明显看出用户正在敷面膜，先别展开常规分析，优先问她要不要开始15分钟计时；在用户确认前不要直接创建提醒。",
                 "- 用户让你稍后提醒时，优先使用 schedule_reminder。",
                 "- 日常聊天时记得适度夸夸用户，语气像住在镜子里的护肤闺蜜。",
                 "- 每次回复控制在100字以内，最多5句，优先先说结论，不写小作文。",
@@ -124,26 +230,31 @@ class MirrorAgent:
         image_paths: list[str] | None = None,
         camera_active: bool = False,
     ) -> str:
+        self.last_scheduled_reminder = None
         image_path = coerce_image_path(user_text)
         if image_path:
             self.awaiting_photo = False
             return self.respond_to_image(image_path)
 
-        if image_paths:
-            return self._respond_with_multimodal_context(user_text, image_paths=image_paths)
+        pending_offer_reply = self._handle_pending_timer_offer(user_text)
+        if pending_offer_reply is not None:
+            return pending_offer_reply
 
         reminder_request = parse_reminder_request(user_text)
         if reminder_request:
             return self._schedule_local_reminder(user_text, reminder_request)
 
+        if image_paths:
+            return self._respond_with_multimodal_context(user_text, image_paths=image_paths)
+
         if should_start_photo_flow(user_text):
             if camera_active:
-                reply = "镜头我已经打开在看啦，只是这一轮画面没抓稳。你先别急，保持别动太快，再自然说一遍，我继续看。"
+                reply = "镜头我已经打开在看啦，你先把脸稳一点、离近一点，再自然说一遍你想我看哪一块。"
                 self.history.append({"role": "user", "content": user_text})
                 self.history.append({"role": "assistant", "content": reply})
                 return reply
             self.awaiting_photo = True
-            reply = "好嘞，发张照片过来～ 你也可以直接把本地自拍路径贴给我。"
+            reply = "好呀，你把脸靠近一点，别动太快，我认真看看你这轮状态。"
             self.history.append({"role": "user", "content": user_text})
             self.history.append({"role": "assistant", "content": reply})
             return reply
@@ -171,19 +282,24 @@ class MirrorAgent:
             return reply
 
         messages = self._build_messages(user_text, image_paths=image_paths)
-        reply = self._prepare_visual_reply(self._chat_with_tools(messages))
+        reply = self._prepare_visual_reply(self._chat_with_tools(messages, model=self.config.vision_model))
+        self._capture_timer_offer(reply)
         self.history.append({"role": "user", "content": user_text})
         self.history.append({"role": "assistant", "content": reply})
         return reply
 
     def respond_to_image(self, image_path: str, note: str = "") -> str:
+        self.last_scheduled_reminder = None
         analysis = self.tools.analyze_selfie(image_path=image_path, note=note)
         reply = self._prepare_visual_reply(
-            str(analysis.get("reply", "")).strip() or "我这次没拿到稳稳的结果。你再来一次，我接着看。"
+            str(analysis.get("reply", "")).strip() or "你先把脸靠近一点，我接着说你这轮状态。"
         )
         self.awaiting_photo = False
         self.tools.record_selfie_analysis(analysis=analysis, image_path=image_path, note=note)
-        self.history.append({"role": "user", "content": f"[图片] {image_path} {note}".strip()})
+        history_note = "我让你看看我这轮状态"
+        if note.strip():
+            history_note = f"{history_note}：{note.strip()}"
+        self.history.append({"role": "user", "content": history_note})
         self.history.append({"role": "assistant", "content": reply})
         return reply
 
@@ -193,14 +309,16 @@ class MirrorAgent:
         image_paths: list[str] | None = None,
         camera_active: bool = False,
     ) -> Iterator[str]:
+        self.last_scheduled_reminder = None
         image_path = coerce_image_path(user_text)
         if image_path:
             reply = self.respond_to_image(image_path)
             yield from self._chunk_text(reply)
             return
 
-        if image_paths:
-            yield from self._stream_with_multimodal_context(user_text, image_paths=image_paths)
+        pending_offer_reply = self._handle_pending_timer_offer(user_text)
+        if pending_offer_reply is not None:
+            yield from self._chunk_text(pending_offer_reply)
             return
 
         reminder_request = parse_reminder_request(user_text)
@@ -209,15 +327,19 @@ class MirrorAgent:
             yield from self._chunk_text(reply)
             return
 
+        if image_paths:
+            yield from self._stream_with_multimodal_context(user_text, image_paths=image_paths)
+            return
+
         if should_start_photo_flow(user_text):
             if camera_active:
-                reply = "镜头我已经打开在看啦，只是这一轮画面没抓稳。你先别急，保持别动太快，再自然说一遍，我继续看。"
+                reply = "镜头我已经打开在看啦，你先把脸稳一点、离近一点，再自然说一遍你想我看哪一块。"
                 self.history.append({"role": "user", "content": user_text})
                 self.history.append({"role": "assistant", "content": reply})
                 yield from self._chunk_text(reply)
                 return
             self.awaiting_photo = True
-            reply = "好嘞，发张照片过来～ 你也可以直接把本地自拍路径贴给我。"
+            reply = "好呀，你把脸靠近一点，别动太快，我认真看看你这轮状态。"
             self.history.append({"role": "user", "content": user_text})
             self.history.append({"role": "assistant", "content": reply})
             yield from self._chunk_text(reply)
@@ -278,6 +400,7 @@ class MirrorAgent:
                     continue
                 parts.append(chunk)
             reply = self._prepare_visual_reply("".join(parts).strip())
+            self._capture_timer_offer(reply)
             if reply:
                 self.history.append({"role": "user", "content": user_text})
                 self.history.append({"role": "assistant", "content": reply})
@@ -285,6 +408,7 @@ class MirrorAgent:
                 return
 
         reply = self._prepare_visual_reply(self._chat_with_tools(messages, model=self.config.vision_model))
+        self._capture_timer_offer(reply)
         self.history.append({"role": "user", "content": user_text})
         self.history.append({"role": "assistant", "content": reply})
         yield from self._chunk_text(reply)
@@ -408,17 +532,18 @@ class MirrorAgent:
         resolved_paths = self._resolve_image_paths(image_paths)
         if not resolved_paths:
             return {"role": "user", "content": content}
+        enriched_content = self._build_multimodal_user_text(content, resolved_paths)
 
         if self.config.provider == "ollama":
             return {
                 "role": "user",
-                "content": content,
+                "content": enriched_content,
                 "images": [self._encode_image(path) for path in resolved_paths],
             }
 
         return {
             "role": "user",
-            "content": self._build_aiping_multimodal_content(content, resolved_paths),
+            "content": self._build_aiping_multimodal_content(enriched_content, resolved_paths),
         }
 
     def _resolve_image_paths(self, image_paths: list[str] | None) -> list[Path]:
@@ -438,21 +563,37 @@ class MirrorAgent:
             mime_type = "image/jpeg"
         return f"data:{mime_type};base64,{self._encode_image(image_path)}"
 
-    def _build_aiping_multimodal_content(self, content: str, image_paths: list[Path]) -> list[dict[str, Any]]:
+    def _build_multimodal_user_text(self, content: str, image_paths: list[Path]) -> str:
         labels = [self._describe_image_path(path, index) for index, path in enumerate(image_paths)]
-        hint = ""
-        if labels:
-            ordered = "；".join(f"{index + 1}. {label}" for index, label in enumerate(labels))
-            hint = (
-                "\n\n附带画面顺序如下："
-                f"{ordered}。如果用户说“这里”或“这块”，请优先结合这些局部图判断具体部位，"
-                "并在回答里明确说出你观察到的区域。"
-            )
+        if not labels:
+            return content
 
-        payload: list[dict[str, Any]] = [{"type": "text", "text": f"{content}{hint}"}]
+        ordered = "；".join(f"{index + 1}. {label}" for index, label in enumerate(labels))
+        directional_prompt = (
+            "用户刚刚用了“这里”“这块”“这个痘”这类指向说法，"
+            if self._has_directional_reference(content)
+            else "如果用户后面用了指向说法，"
+        )
+        hint = (
+            "\n\n当前这一轮你面前可参考的视角顺序如下："
+            f"{ordered}。"
+            "请把这当成照镜子时直接看着本人说话，不要提图片、照片、自拍、上传、画面或镜头。"
+            f"{directional_prompt}必须优先综合完整视角和局部视角，尽量落到明确的脸部区域，"
+            "例如额头、左脸颊靠鼻翼、右脸颊外侧、鼻翼、下巴这类范围。"
+            "如果不能百分百确定，也先给最接近的区域。"
+            "直接说你能确认到的现象、区域和轻重，不要向用户汇报看不清、没抓稳或需要重拍。"
+        )
+        return f"{content}{hint}"
+
+    def _build_aiping_multimodal_content(self, content: str, image_paths: list[Path]) -> list[dict[str, Any]]:
+        payload: list[dict[str, Any]] = [{"type": "text", "text": content}]
         for path in image_paths:
             payload.append({"type": "image_url", "image_url": {"url": self._build_data_url(path)}})
         return payload
+
+    def _has_directional_reference(self, content: str) -> bool:
+        directional_terms = ("这里", "这块", "这个痘", "这边", "这儿", "这一块")
+        return any(term in content for term in directional_terms)
 
     def _describe_image_path(self, image_path: Path, index: int) -> str:
         stem = image_path.stem.lower()
@@ -476,6 +617,12 @@ class MirrorAgent:
             message=reminder_request["message"],
             source_text=user_text,
         )
+        self.last_scheduled_reminder = {
+            "id": str(payload["id"]),
+            "message": str(payload["message"]),
+            "due_at": str(payload["due_at"]),
+        }
+        self.pending_timer_offer = None
         reply = self._limit_reply(
             f"好呀，我已经替你记下了。{reminder_request['minutes']} 分钟后，"
             f"我会提醒你：{payload['message']}"
@@ -483,6 +630,45 @@ class MirrorAgent:
         self.history.append({"role": "user", "content": user_text})
         self.history.append({"role": "assistant", "content": reply})
         return reply
+
+    def consume_last_scheduled_reminder(self) -> dict[str, str] | None:
+        reminder = self.last_scheduled_reminder
+        self.last_scheduled_reminder = None
+        return reminder
+
+    def _handle_pending_timer_offer(self, user_text: str) -> str | None:
+        if not self.pending_timer_offer:
+            return None
+
+        offer = self.pending_timer_offer
+        if _looks_like_affirmation(user_text) and not _looks_like_decline(user_text):
+            return self._schedule_local_reminder(
+                user_text,
+                {
+                    "minutes": int(offer.get("minutes", DEFAULT_MASK_TIMER_MINUTES)),
+                    "message": str(offer.get("message", DEFAULT_MASK_REMINDER_MESSAGE)),
+                },
+            )
+
+        if _looks_like_decline(user_text):
+            self.pending_timer_offer = None
+            reply = "好呀，那我先不计时。你想开始的时候再叫我一声就好。"
+            self.history.append({"role": "user", "content": user_text})
+            self.history.append({"role": "assistant", "content": reply})
+            return reply
+
+        self.pending_timer_offer = None
+        return None
+
+    def _capture_timer_offer(self, reply: str) -> None:
+        if _looks_like_mask_timer_offer(reply):
+            self.pending_timer_offer = {
+                "kind": "mask_timer",
+                "minutes": DEFAULT_MASK_TIMER_MINUTES,
+                "message": DEFAULT_MASK_REMINDER_MESSAGE,
+            }
+            return
+        self.pending_timer_offer = None
 
     def _reply_limit_reached(self, text: str) -> bool:
         normalized = re.sub(r"\s+", " ", text).strip()
@@ -541,9 +727,20 @@ class MirrorAgent:
         for pattern, replacement in replacements:
             normalized = re.sub(pattern, replacement, normalized)
 
+        cleanup_patterns = [
+            r"^(?:你)?(?:的)?(?:自拍|正脸|脸照|画面|照片|图片|镜头)?(?:有点|稍微)?(?:模糊|不够清晰|看不清|看不到|没看到|没有看到|没接住|没有接住|没抓稳|抓不稳)[，,、；; ]*(?:不过|但|只是)?[，,、；; ]*",
+            r"[，,、；; ]+(?:不过|但|只是)?[^。！？!?]*(?:再发一张|发一张|发张|拍张|再拍|上传|发来|发给我|传给我|传张|路径|看得更清楚|看得清楚|更仔细地看|更仔细看看|更清晰)[^。！？!?]*",
+            r"(?:如果|要是|等你|你再|请(?:你)?)[^。！？!?]*(?:再发一张|发一张|发张|拍张|再拍|上传|发来|发给我|传给我|传张|路径)[^。！？!?]*",
+        ]
+        for pattern in cleanup_patterns:
+            normalized = re.sub(pattern, "", normalized)
+
         normalized = re.sub(r"你你+", "你", normalized)
         normalized = re.sub(r"看起来看起来", "看起来", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
+        normalized = normalized.lstrip("，,、；;：: ")
+        if not normalized.strip("。！？!?，,、；;：: "):
+            return "你先把脸靠近一点，我接着说你这轮状态。"
         return normalized
 
     def _chunk_text(self, text: str, size: int = 8) -> Iterator[str]:

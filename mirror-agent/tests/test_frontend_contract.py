@@ -30,8 +30,15 @@ class FrontendContractTests(unittest.TestCase):
         template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
 
         self.assertIn('id="camera-button"', template)
+        self.assertIn('id="camera-select"', template)
         self.assertIn('id="camera-preview"', template)
         self.assertIn('id="camera-canvas"', template)
+
+    def test_camera_controls_show_active_device_name(self) -> None:
+        template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="camera-device-name"', template)
+        self.assertIn("当前摄像头：未连接", template)
 
     def test_frontend_calls_voice_chat_endpoint(self) -> None:
         script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
@@ -102,6 +109,38 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('formData.append("frame", frameBlob, "mirror-agent-frame.jpg");', script)
         self.assertIn('formData.append("camera_active", "true");', script)
 
+    def test_frontend_prefers_named_external_camera_when_available(self) -> None:
+        script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('const PREFERRED_CAMERA_LABEL = "1080P USB Camera";', script)
+        self.assertIn("navigator.mediaDevices.enumerateDevices()", script)
+        self.assertIn('device.kind === "videoinput"', script)
+        self.assertIn("device.label === PREFERRED_CAMERA_LABEL", script)
+
+    def test_frontend_falls_back_and_recovers_when_camera_changes(self) -> None:
+        script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('navigator.mediaDevices.getUserMedia({ video: true, audio: false })', script)
+        self.assertIn('navigator.mediaDevices.addEventListener("devicechange"', script)
+        self.assertIn('videoTrack.addEventListener("ended"', script)
+        self.assertIn('cameraDeviceName.textContent = `当前摄像头：${label}`;', script)
+
+    def test_frontend_persists_and_restores_selected_camera_device(self) -> None:
+        script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('const CAMERA_DEVICE_KEY = "mirror-preferred-camera-device-id";', script)
+        self.assertIn('localStorage.getItem(CAMERA_DEVICE_KEY)', script)
+        self.assertIn('localStorage.setItem(CAMERA_DEVICE_KEY, deviceId);', script)
+        self.assertIn('cameraSelect.addEventListener("change"', script)
+
+    def test_frontend_rebuilds_camera_options_from_available_video_inputs(self) -> None:
+        script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn('const cameraSelect = document.getElementById("camera-select");', script)
+        self.assertIn('document.createElement("option")', script)
+        self.assertIn('option.value = device.deviceId;', script)
+        self.assertIn("cameraSelect.replaceChildren", script)
+
     def test_frontend_attempts_face_region_capture_for_camera_round(self) -> None:
         script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
 
@@ -131,7 +170,15 @@ class FrontendContractTests(unittest.TestCase):
 
         self.assertIn('new BroadcastChannel("mirror-tablet-display")', script)
         self.assertIn('localStorage.setItem("mirror-tablet-state"', script)
+        self.assertIn('fetch("/api/tablet-state"', script)
         self.assertIn("pushTabletScene(", script)
+
+    def test_main_frontend_syncs_scheduled_reminders_to_tablet_state(self) -> None:
+        script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function setTabletReminder(reminder)", script)
+        self.assertIn("scheduled_reminder", script)
+        self.assertIn("lastTriggeredReminder", script)
 
     def test_tablet_frontend_uses_only_the_selected_five_animation_variants(self) -> None:
         script = (PROJECT_ROOT / "static" / "tablet.js").read_text(encoding="utf-8")
@@ -141,3 +188,17 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('"thinking": "star-spiral"', script)
         self.assertIn('"reply": "bow-flash"', script)
         self.assertIn('"idle": "ribbon-sway"', script)
+
+    def test_tablet_frontend_renders_synced_reminder_countdown(self) -> None:
+        template = (PROJECT_ROOT / "templates" / "tablet.html").read_text(encoding="utf-8")
+        script = (PROJECT_ROOT / "static" / "tablet.js").read_text(encoding="utf-8")
+
+        self.assertIn('id="tablet-reminder"', template)
+        self.assertIn('id="tablet-countdown-value"', template)
+        self.assertIn('id="tablet-reminder-message"', template)
+        self.assertIn('const tabletReminderEl = document.getElementById("tablet-reminder");', script)
+        self.assertIn('fetch("/api/tablet-state"', script)
+        self.assertIn("let latestTabletState = readStoredState();", script)
+        self.assertIn("function rememberTabletState(state)", script)
+        self.assertIn("renderReminder(latestTabletState.reminder, latestTabletState.lastTriggeredReminder);", script)
+        self.assertIn("function renderReminder(reminder, lastTriggeredReminder)", script)
