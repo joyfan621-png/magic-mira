@@ -158,6 +158,7 @@ function normalizeReminder(reminder) {
   }
 
   const dueAt = String(reminder.due_at || reminder.dueAt || "").trim();
+  const dueAtMs = Number(reminder.due_at_ms ?? reminder.dueAtMs);
   const message = String(reminder.message || "").trim();
   const id = String(reminder.id || "").trim();
 
@@ -169,6 +170,7 @@ function normalizeReminder(reminder) {
     id,
     message,
     dueAt,
+    dueAtMs: Number.isFinite(dueAtMs) && dueAtMs > 0 ? dueAtMs : parseReminderDueAtMs({ dueAt }),
   };
 }
 
@@ -190,9 +192,28 @@ function normalizeTriggeredReminder(reminder) {
     id: String(reminder.id || message).trim(),
     message,
     dueAt: String(reminder.due_at || reminder.dueAt || "").trim(),
+    dueAtMs: parseReminderDueAtMs(reminder),
     audioUrl: String(reminder.audio_url || reminder.audioUrl || "").trim(),
     triggeredAt: Number.isFinite(parsedTriggeredAt) ? parsedTriggeredAt : Date.now(),
   };
+}
+
+function parseReminderDueAtMs(reminder) {
+  if (!reminder || typeof reminder !== "object") {
+    return Number.NaN;
+  }
+
+  const directDueAtMs = Number(reminder.due_at_ms ?? reminder.dueAtMs);
+  if (Number.isFinite(directDueAtMs) && directDueAtMs > 0) {
+    return directDueAtMs;
+  }
+
+  const dueAt = String(reminder.due_at || reminder.dueAt || "").trim();
+  if (!dueAt) {
+    return Number.NaN;
+  }
+
+  return new Date(dueAt).getTime();
 }
 
 function readStoredScene() {
@@ -252,7 +273,8 @@ function formatRemainingTime(remainingMs) {
 }
 
 function formatDueTime(dueAt) {
-  const dueDate = new Date(dueAt);
+  const dueAtMs = parseReminderDueAtMs(dueAt);
+  const dueDate = Number.isFinite(dueAtMs) && dueAtMs > 0 ? new Date(dueAtMs) : new Date(String(dueAt || "").trim());
   if (Number.isNaN(dueDate.getTime())) {
     return "";
   }
@@ -289,7 +311,7 @@ function renderReminder(reminder, lastTriggeredReminder) {
     tabletReminderEl.dataset.state = "due";
     tabletCountdownLabelEl.textContent = "提醒到了";
     tabletCountdownValueEl.textContent = "00:00";
-    tabletReminderMetaEl.textContent = triggeredReminder.dueAt ? `${formatDueTime(triggeredReminder.dueAt)} 已到` : "现在提醒你";
+    tabletReminderMetaEl.textContent = triggeredReminder.dueAt ? `${formatDueTime(triggeredReminder)} 已到` : "现在提醒你";
     tabletReminderMessageEl.textContent = triggeredReminder.message;
     playReminderAudio(triggeredReminder);
     return;
@@ -305,9 +327,8 @@ function renderReminder(reminder, lastTriggeredReminder) {
     return;
   }
 
-  const dueAtMs = new Date(activeReminder.dueAt).getTime();
-  const remainingMs = Number.isNaN(dueAtMs) ? 0 : dueAtMs - Date.now();
-  const dueTimeLabel = formatDueTime(activeReminder.dueAt);
+  const remainingMs = Number.isNaN(activeReminder.dueAtMs) ? 0 : activeReminder.dueAtMs - Date.now();
+  const dueTimeLabel = formatDueTime(activeReminder);
 
   tabletReminderEl.hidden = false;
   tabletReminderEl.dataset.state = remainingMs <= 0 ? "due" : "counting";

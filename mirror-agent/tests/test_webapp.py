@@ -15,6 +15,8 @@ class StubAgent:
         self.voice_camera_flags: list[bool] = []
         self.closed_with: list[str] = []
         self.next_scheduled_reminder: dict[str, str] | None = None
+        self.current_name = ""
+        self.onboarding_names: list[str] = []
 
     def respond(
         self,
@@ -31,6 +33,20 @@ class StubAgent:
     def respond_to_image(self, image_path: str, note: str = "") -> str:
         self.image_calls.append((image_path, note))
         return f"image-reply:{note}"
+
+    def display_name(self) -> str:
+        return self.current_name or "我"
+
+    def needs_name_onboarding(self) -> bool:
+        return not bool(self.current_name)
+
+    def complete_name_onboarding(self, name: str) -> str:
+        self.current_name = name
+        self.onboarding_names.append(name)
+        return f"{name}！好好听。那我以后就是你的{name}啦，我会在镜子里一直陪你。"
+
+    def opening_name_prompt(self) -> str:
+        return "嗨！我刚搬进你的镜子里，以后每天早晚都能见到你啦。不过我还没有名字诶，你想叫我什么？"
 
     def close_session(self, trigger_text: str) -> tuple[str, Path]:
         self.closed_with.append(trigger_text)
@@ -102,7 +118,31 @@ class WebAppTests(unittest.TestCase):
         self.assertIn('id="subtitle-panel"', html)
         self.assertIn('id="countdown-panel"', html)
         self.assertIn('id="camera-preview"', html)
+        self.assertIn('data-needs-onboarding="true"', html)
+        self.assertNotIn('id="onboarding-overlay"', html)
+        self.assertNotIn('id="mirror-name-input"', html)
         self.assertNotIn('id="voice-button"', html)
+
+    def test_opening_name_prompt_route_returns_intro_audio(self) -> None:
+        response = self.client.get("/api/onboarding/opening")
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("我", payload["assistant_label"])
+        self.assertIn("你想叫我什么", payload["reply"])
+        self.assertEqual("/audio/voice-reply.mp3", payload["audio_url"])
+        self.assertEqual([payload["reply"]], self.voice_output.spoken)
+
+    def test_name_onboarding_route_updates_assistant_label_and_returns_intro_audio(self) -> None:
+        response = self.client.post("/api/onboarding/name", json={"name": "小镜"})
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("小镜", payload["assistant_label"])
+        self.assertIn("小镜", payload["reply"])
+        self.assertEqual("/audio/voice-reply.mp3", payload["audio_url"])
+        self.assertEqual(["小镜"], self.stub_agent.onboarding_names)
+        self.assertEqual([payload["reply"]], self.voice_output.spoken)
 
     def test_lab_page_renders_existing_console(self) -> None:
         response = self.client.get("/lab")
@@ -138,6 +178,7 @@ class WebAppTests(unittest.TestCase):
             "id": "timer-1",
             "message": "面膜时间到了，记得摘掉并轻轻按摩一下哦。",
             "due_at": "2026-04-05T12:15:00",
+            "due_at_ms": 1775362500000,
         }
 
         response = self.client.post("/api/chat", json={"message": "15分钟后提醒我摘面膜"})
@@ -146,6 +187,7 @@ class WebAppTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual("timer-1", payload["scheduled_reminder"]["id"])
         self.assertEqual("2026-04-05T12:15:00", payload["scheduled_reminder"]["due_at"])
+        self.assertEqual(1775362500000, payload["scheduled_reminder"]["due_at_ms"])
 
     def test_tablet_state_route_can_store_and_return_shared_state(self) -> None:
         update_response = self.client.post(
@@ -156,6 +198,7 @@ class WebAppTests(unittest.TestCase):
                     "id": "timer-1",
                     "message": "面膜时间到了，记得摘掉并轻轻按摩一下哦。",
                     "due_at": "2026-04-05T12:15:00",
+                    "due_at_ms": 1775362500000,
                 },
             },
         )
@@ -171,6 +214,7 @@ class WebAppTests(unittest.TestCase):
         fetch_payload = fetch_response.get_json()
         self.assertEqual("reply", fetch_payload["scene"])
         self.assertEqual("2026-04-05T12:15:00", fetch_payload["reminder"]["due_at"])
+        self.assertEqual(1775362500000, fetch_payload["reminder"]["due_at_ms"])
 
     def test_tablet_state_route_merges_partial_updates(self) -> None:
         self.client.post(
@@ -284,6 +328,22 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual("今天脸有点干", response.get_json()["transcript"])
         self.assertEqual("reply:今天脸有点干", response.get_json()["reply"])
 
+    def test_voice_route_normalizes_magic_compliment_homophone_transcript(self) -> None:
+        client = create_app(
+            agent=self.stub_agent,
+            transcribe_audio=lambda path: "魔技 魔技 告诉我谁是世界上最漂亮的女孩子",
+            voice_output_factory=lambda temp_dir: self.voice_output,
+        ).test_client()
+
+        data = {
+            "audio": (io.BytesIO(b"fake-audio-bytes"), "voice.webm"),
+        }
+        response = client.post("/api/voice-chat", data=data, content_type="multipart/form-data")
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual("魔镜魔镜告诉我谁是世界上最漂亮的女孩子", response.get_json()["transcript"])
+        self.assertEqual("reply:魔镜魔镜告诉我谁是世界上最漂亮的女孩子", response.get_json()["reply"])
+
     def test_audio_file_route_serves_generated_mp3(self) -> None:
         path = self.voice_temp_dir / "voice-reply.mp3"
         path.write_bytes(b"fake-mp3")
@@ -326,6 +386,24 @@ class WebAppTests(unittest.TestCase):
         body = response.get_data(as_text=True)
         self.assertIn('"text": "今天脸有点干"', body)
         self.assertIn('"reply": "reply:今天脸有点干"', body)
+
+    def test_voice_stream_route_normalizes_magic_compliment_homophone_transcript(self) -> None:
+        client = create_app(
+            agent=self.stub_agent,
+            transcribe_audio=lambda path: "魔技 魔技 告诉我谁是世界上最漂亮的女孩子",
+            voice_output_factory=lambda temp_dir: self.voice_output,
+        ).test_client()
+
+        data = {
+            "audio": (io.BytesIO(b"fake-audio-bytes"), "voice.webm"),
+        }
+
+        response = client.post("/api/voice-chat-stream", data=data, content_type="multipart/form-data")
+
+        self.assertEqual(200, response.status_code)
+        body = response.get_data(as_text=True)
+        self.assertIn('"text": "魔镜魔镜告诉我谁是世界上最漂亮的女孩子"', body)
+        self.assertIn('"reply": "reply:魔镜魔镜告诉我谁是世界上最漂亮的女孩子"', body)
 
     def test_voice_stream_route_emits_scheduled_reminder_payload(self) -> None:
         self.stub_agent.next_scheduled_reminder = {

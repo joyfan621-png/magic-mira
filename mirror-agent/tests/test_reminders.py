@@ -7,6 +7,23 @@ from reminders import ReminderScheduler
 
 
 class ReminderSchedulerTests(unittest.TestCase):
+    def test_schedule_in_minutes_serializes_browser_safe_due_time_without_microseconds(self) -> None:
+        current_time = datetime(2026, 4, 5, 12, 0, 0, 123456)
+
+        def now() -> datetime:
+            return current_time
+
+        scheduler = ReminderScheduler(now_func=now)
+        reminder = scheduler.schedule_in_minutes(
+            minutes=2,
+            message="提醒时间到了哦。",
+            source_text="2分钟后提醒我一下",
+        )
+
+        self.assertEqual("2026-04-05T12:02:01", reminder.due_at)
+        self.assertEqual(int(datetime(2026, 4, 5, 12, 2, 1).timestamp() * 1000), reminder.due_at_ms)
+        self.assertNotIn(".", reminder.due_at)
+
     def test_schedule_in_minutes_and_pop_due_returns_ready_items(self) -> None:
         current_time = datetime(2026, 4, 5, 12, 0, 0)
 

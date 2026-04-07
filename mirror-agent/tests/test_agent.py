@@ -4,7 +4,7 @@ from argparse import Namespace
 from datetime import date
 from pathlib import Path
 
-from agent import MirrorAgent, should_end_session
+from agent import MirrorAgent, parse_reminder_request, should_end_session, should_trigger_magic_compliment
 from config import AppConfig
 from ollama_client import OllamaClient
 from main import build_parser
@@ -207,11 +207,108 @@ class FakeMaskTimerOfferClient:
         self.chat = type("ChatAPI", (), {"completions": FakeMaskTimerOfferCompletions()})()
 
 
+class FakeMagicComplimentCompletions:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def create(
+        self,
+        model: str,
+        messages: list[dict[str, object]],
+        tools: list[dict[str, object]] | None = None,
+        extra_body: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools or [],
+                "extra_body": extra_body or {},
+            }
+        )
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "当然是你啊。你今天一开口问这句就已经很会赢了，整个人的状态都软乎乎亮晶晶的。",
+                    }
+                }
+            ]
+        }
+
+
+class FakeMagicComplimentClient:
+    def __init__(self) -> None:
+        self.chat = type("ChatAPI", (), {"completions": FakeMagicComplimentCompletions()})()
+
+
+class FakeMagicComplimentStreamingCompletions:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def stream(self, model: str, messages: list[dict[str, object]], extra_body: dict[str, object] | None = None):
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "extra_body": extra_body or {},
+            }
+        )
+        yield "当然是你啊。"
+        yield "你今天这股松松亮亮的劲儿很加分。"
+
+
+class FakeMagicComplimentStreamingClient:
+    def __init__(self) -> None:
+        self.chat = type("ChatAPI", (), {"completions": FakeMagicComplimentStreamingCompletions()})()
+
+
+class FakeEmptyReplyCompletions:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def create(
+        self,
+        model: str,
+        messages: list[dict[str, object]],
+        tools: list[dict[str, object]] | None = None,
+        extra_body: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools or [],
+                "extra_body": extra_body or {},
+            }
+        )
+        return {
+            "choices": [
+                {
+                    "message": {
+                        "role": "assistant",
+                        "content": "",
+                    }
+                }
+            ]
+        }
+
+
+class FakeEmptyReplyClient:
+    def __init__(self) -> None:
+        self.chat = type("ChatAPI", (), {"completions": FakeEmptyReplyCompletions()})()
+
+
 class AgentTests(unittest.TestCase):
     def test_should_end_session_detects_bye(self) -> None:
         self.assertTrue(should_end_session("拜拜啦"))
         self.assertTrue(should_end_session("晚安镜子虾"))
         self.assertFalse(should_end_session("今天有点爆痘"))
+
+    def test_parse_reminder_request_ignores_assistant_style_confirmation_echo(self) -> None:
+        self.assertIsNone(parse_reminder_request("好的，我会在1min后提醒你。"))
+        self.assertIsNone(parse_reminder_request("好呀，我已经替你记下了。1 分钟后，我会提醒你：提醒时间到了哦。"))
 
     def test_build_memory_context_includes_core_files(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -252,6 +349,170 @@ class AgentTests(unittest.TestCase):
             self.assertIn("100字以内", prompt)
             self.assertIn("最多5句", prompt)
             self.assertIn("直接说你能确认到的现象和区域", prompt)
+
+    def test_build_system_prompt_guides_tcm_face_mapping_queries_to_knowledge_tool(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            prompt = agent.build_system_prompt()
+
+            self.assertIn("中医", prompt)
+            self.assertIn("面诊", prompt)
+            self.assertIn("skincare_knowledge", prompt)
+
+    def test_magic_compliment_trigger_matches_demo_phrase_variants(self) -> None:
+        self.assertTrue(should_trigger_magic_compliment("魔镜魔镜告诉我，谁是世界上最漂亮的女孩子"))
+        self.assertTrue(should_trigger_magic_compliment("谁是世界上最漂亮的女孩子"))
+        self.assertTrue(should_trigger_magic_compliment("魔镜魔镜告诉我谁是世界上最漂亮的女孩子"))
+        self.assertTrue(should_trigger_magic_compliment("魔镜魔镜，谁是世界上最漂亮的女孩子呀"))
+        self.assertTrue(should_trigger_magic_compliment("魔技 魔技 告诉我谁是世界上最漂亮的女孩子"))
+        self.assertTrue(should_trigger_magic_compliment("夸夸我"))
+        self.assertTrue(should_trigger_magic_compliment("我今天好不好看"))
+        self.assertTrue(should_trigger_magic_compliment("你觉得我美不美"))
+        self.assertFalse(should_trigger_magic_compliment("额头为什么总长痘"))
+        self.assertFalse(should_trigger_magic_compliment("下巴这颗痘是不是又红了"))
+
+    def test_build_magic_compliment_system_prompt_includes_memory_and_structure(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的 AI 护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            (project_root / "memory" / "profile.md").write_text(
+                "# 用户画像\n\n## 2026-04-06\n\n- 互动偏好：喜欢被直接一点地夸\n",
+                encoding="utf-8",
+            )
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=object())
+
+            prompt = agent._build_magic_compliment_system_prompt(has_image=False)
+
+            self.assertIn("喜欢被直接一点地夸", prompt)
+            self.assertIn("当然是你啊", prompt)
+            self.assertIn("2到4句", prompt)
+            self.assertIn("不要空泛地只说“你很漂亮”", prompt)
+            self.assertIn("用户这轮明显是在向你讨一个偏心夸夸", prompt)
+            self.assertIn("没有画面时，不要编造具体五官或皮肤细节", prompt)
+
+    def test_respond_magic_compliment_routes_to_dedicated_prompt_and_history(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的 AI 护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="aiping",
+                api_key="test-key",
+                chat_model="Qwen3-14B",
+                vision_model="Qwen2.5-VL-32B-Instruct",
+                base_url="https://aiping.cn/api/v1/chat/completions",
+            )
+            client = FakeMagicComplimentClient()
+            agent = MirrorAgent(config=config, client=client)
+
+            reply = agent.respond("谁是世界上最漂亮的女孩子")
+
+            self.assertIn("当然是你啊", reply)
+            call = client.chat.completions.calls[0]
+            self.assertEqual("Qwen3-14B", call["model"])
+            self.assertIn("## 偏爱夸夸模式", call["messages"][0]["content"])
+            self.assertEqual("谁是世界上最漂亮的女孩子", call["messages"][-1]["content"])
+            self.assertEqual(reply, agent.history[-1]["content"])
+
+    def test_stream_magic_compliment_uses_dedicated_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的 AI 护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="ollama",
+                api_key="",
+                chat_model="gemma4:e2b",
+                vision_model="gemma4:e2b",
+                base_url="http://127.0.0.1:11434",
+            )
+            client = FakeMagicComplimentStreamingClient()
+            agent = MirrorAgent(config=config, client=client)
+
+            chunks = list(agent.stream_respond("夸夸我"))
+
+            self.assertEqual(["当然是你啊。", "你今天这股松松亮亮的劲儿很加分。"], chunks)
+            call = client.chat.completions.calls[0]
+            self.assertEqual("gemma4:e2b", call["model"])
+            self.assertIn("用户这轮明显是在向你讨一个偏心夸夸", call["messages"][0]["content"])
+
+    def test_magic_compliment_with_camera_frame_uses_vision_model_and_multimodal_payload(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的 AI 护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            image_path = project_root / "camera-frame.jpg"
+            image_path.write_bytes(b"fake-image")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="aiping",
+                api_key="test-key",
+                chat_model="Qwen3-14B",
+                vision_model="Qwen2.5-VL-32B-Instruct",
+                base_url="https://aiping.cn/api/v1/chat/completions",
+            )
+            client = FakeMagicComplimentClient()
+            agent = MirrorAgent(config=config, client=client)
+
+            reply = agent.respond(
+                "我今天好不好看",
+                image_paths=[str(image_path)],
+            )
+
+            self.assertIn("当然是你啊", reply)
+            call = client.chat.completions.calls[0]
+            self.assertEqual("Qwen2.5-VL-32B-Instruct", call["model"])
+            self.assertIsInstance(call["messages"][-1]["content"], list)
+            self.assertEqual("text", call["messages"][-1]["content"][0]["type"])
+            self.assertIn("当前这一轮你面前可参考的视角顺序如下", call["messages"][-1]["content"][0]["text"])
+
+    def test_magic_compliment_replaces_generic_chat_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的 AI 护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="aiping",
+                api_key="test-key",
+                chat_model="Qwen3-14B",
+                vision_model="Qwen2.5-VL-32B-Instruct",
+                base_url="https://aiping.cn/api/v1/chat/completions",
+            )
+            client = FakeEmptyReplyClient()
+            agent = MirrorAgent(config=config, client=client)
+
+            reply = agent.respond("夸夸我")
+
+            self.assertIn("当然是你啊", reply)
+            self.assertNotIn("我有点卡住了", reply)
 
     def test_respond_shortens_overlong_model_reply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -345,6 +606,75 @@ class AgentTests(unittest.TestCase):
             agent = MirrorAgent(config=config, client=None)
 
             self.assertEqual("小镜", agent.display_name())
+
+    def test_complete_name_onboarding_persists_name_and_returns_short_acknowledgement(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的AI护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            reply = agent.complete_name_onboarding("小镜")
+
+            self.assertEqual("小镜", agent.display_name())
+            self.assertEqual("记住了，以后我就叫小镜。", reply)
+            profile = (project_root / "memory" / "profile.md").read_text(encoding="utf-8")
+            self.assertIn("镜中名字：小镜", profile)
+
+    def test_opening_name_prompt_asks_user_what_to_call_her(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的AI护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            reply = agent.opening_name_prompt()
+
+            self.assertIn("刚搬进你的镜子里", reply)
+            self.assertIn("你想叫我什么", reply)
+
+    def test_respond_can_complete_name_onboarding_from_direct_voice_reply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的AI护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            agent.opening_name_prompt()
+            reply = agent.respond("小镜")
+
+            self.assertEqual("小镜", agent.display_name())
+            self.assertEqual("记住了，以后我就叫小镜。", reply)
+
+    def test_respond_can_complete_name_onboarding_from_future_call_phrase(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是一个住在镜子里的AI护肤闺蜜。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            agent.opening_name_prompt()
+            reply = agent.respond("你以后就叫小太阳吧")
+
+            self.assertEqual("小太阳", agent.display_name())
+            self.assertEqual("记住了，以后我就叫小太阳。", reply)
+            self.assertNotIn("你以后就叫小太阳吧", reply)
 
     def test_builds_ollama_client_without_api_key(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -496,6 +826,39 @@ class AgentTests(unittest.TestCase):
 
             self.assertIn("今天气色还不错嘛", reply)
             self.assertIn(reply, [item["content"] for item in agent.history if item["role"] == "assistant"])
+
+    def test_multimodal_tcm_query_includes_face_mapping_knowledge_in_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text("你是镜子虾。", encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+            (project_root / "knowledge" / "face-mapping.md").write_text(
+                "# 小镜的看脸笔记\n\n## 面诊提示\n### 下巴\n下巴长痘常见和生理周期波动有关。\n\n### 额头\n额头冒痘常见和压力大、没睡好有关。\n",
+                encoding="utf-8",
+            )
+            image_path = project_root / "camera-frame.jpg"
+            image_path.write_bytes(b"fake-image")
+
+            config = AppConfig(
+                project_root=project_root,
+                provider="ollama",
+                api_key="",
+                chat_model="gemma4:e2b",
+                vision_model="gemma4:e2b",
+                base_url="http://127.0.0.1:11434",
+            )
+            client = FakeNonStreamingClient()
+            agent = MirrorAgent(config=config, client=client)
+
+            agent.respond("从中医面诊角度看看我下巴这块", image_paths=[str(image_path)])
+
+            call = client.chat.completions.calls[0]
+            prompt = str(call["messages"][0]["content"])
+            self.assertIn("中医/面诊参考笔记", prompt)
+            self.assertIn("下巴长痘常见和生理周期波动有关", prompt)
+            self.assertNotIn("额头冒痘常见和压力大、没睡好有关", prompt)
 
     def test_respond_to_image_sanitizes_photo_wording_in_analysis_reply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

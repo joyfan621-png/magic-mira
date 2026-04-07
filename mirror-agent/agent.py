@@ -46,6 +46,33 @@ MASK_TIMER_OFFER_PATTERNS = (
     r"(?:要不要|要我|要不).*(?:15\s*分钟|十五分钟).*(?:计时|提醒)",
     r"面膜.*(?:要不要|要我|要不).*(?:计时|提醒)",
 )
+MAGIC_COMPLIMENT_CANONICAL_PROMPT = "魔镜魔镜告诉我谁是世界上最漂亮的女孩子"
+EXACT_MAGIC_COMPLIMENT_PATTERN = re.compile(
+    r"^魔镜魔镜(?:告诉我)?[，,\s]*谁是世界上最漂亮的女孩子(?:呀|啊|呢|嘛)?[。！？!?]?$"
+)
+MAGIC_COMPLIMENT_PATTERNS = (
+    re.compile(r"^魔[镜技记竞静劲]魔[镜技记竞静劲](?:告诉我)?谁是世界上最漂亮的女孩子(?:呀|啊|呢|嘛)?$"),
+)
+DEFINITE_COMPLIMENT_INTENT_PATTERNS = (
+    re.compile(r"谁是(?:世界上)?最(?:漂亮|好看|美)的?(?:女孩子|女孩|女生|女人|人)"),
+    re.compile(r"(?:夸夸我|夸我一下|夸我|快夸我|来夸夸我|快点夸我)"),
+    re.compile(r"我是不是(?:世界上)?最(?:漂亮|好看|美)的?(?:女孩子|女孩|女生|人)?"),
+)
+AMBIGUOUS_COMPLIMENT_INTENT_PATTERNS = (
+    re.compile(r"我(?:今天)?(?:好不好看|美不美|漂不漂亮|好看吗|漂亮吗|美吗)"),
+    re.compile(r"你觉得我(?:今天)?(?:好不好看|美不美|漂不漂亮|好看吗|漂亮吗|美吗)"),
+)
+COMPLIMENT_INTENT_BLOCKLIST = ("痘", "闭口", "粉刺", "黑眼圈", "毛孔", "过敏", "发红", "脱皮", "出油", "痘印")
+TCM_FACE_MAPPING_KEYWORDS = ("中医", "食养", "面诊", "脸上哪个位置", "对应什么", "身体在说什么")
+FACE_REGION_KEYWORDS = (
+    ("额头", ("额头", "脑门")),
+    ("眉心", ("眉心", "印堂")),
+    ("鼻子", ("鼻子", "鼻头", "鼻翼", "T区", "t区")),
+    ("左脸颊", ("左脸颊", "左脸", "左边脸", "左侧脸")),
+    ("右脸颊", ("右脸颊", "右脸", "右边脸", "右侧脸")),
+    ("下巴", ("下巴", "下颌", "下颚")),
+    ("嘴唇周围", ("嘴唇周围", "嘴巴周围", "嘴周", "唇周", "嘴角")),
+)
 CHINESE_NUMBER_MAP = {
     "零": 0,
     "一": 1,
@@ -72,6 +99,51 @@ def should_start_photo_flow(text: str) -> bool:
     return any(keyword in normalized for keyword in PHOTO_REQUEST_KEYWORDS)
 
 
+def normalize_magic_compliment_text(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    if EXACT_MAGIC_COMPLIMENT_PATTERN.fullmatch(normalized):
+        return normalized
+    collapsed = re.sub(r"[\s，,。！？!?~～:：；;、]+", "", normalized)
+    if any(pattern.fullmatch(collapsed) for pattern in MAGIC_COMPLIMENT_PATTERNS):
+        return MAGIC_COMPLIMENT_CANONICAL_PROMPT
+    return normalized
+
+
+def should_trigger_magic_compliment(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    if EXACT_MAGIC_COMPLIMENT_PATTERN.fullmatch(normalized):
+        return True
+    collapsed = re.sub(r"[\s，,。！？!?~～:：；;、]+", "", normalized)
+    if normalize_magic_compliment_text(normalized) == MAGIC_COMPLIMENT_CANONICAL_PROMPT:
+        return True
+    if any(pattern.search(collapsed) for pattern in DEFINITE_COMPLIMENT_INTENT_PATTERNS):
+        return True
+    if any(pattern.search(collapsed) for pattern in AMBIGUOUS_COMPLIMENT_INTENT_PATTERNS):
+        return not any(keyword in normalized for keyword in COMPLIMENT_INTENT_BLOCKLIST)
+    return False
+
+
+def should_add_tcm_face_mapping_context(text: str) -> bool:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return False
+    return any(keyword in normalized for keyword in TCM_FACE_MAPPING_KEYWORDS)
+
+
+def extract_face_region_focus(text: str) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+    for region, keywords in FACE_REGION_KEYWORDS:
+        if any(keyword in normalized for keyword in keywords):
+            return region
+    return ""
+
+
 def coerce_image_path(text: str) -> str | None:
     candidate = text.strip()
     if not candidate:
@@ -86,6 +158,55 @@ def coerce_image_path(text: str) -> str | None:
     return str(path.resolve())
 
 
+def normalize_mirror_name(raw: str) -> str:
+    candidate = str(raw or "").strip().strip("“”\"'")
+    candidate = re.sub(r"\s+", "", candidate)
+    candidate = re.sub(r"[，,。！？!?~～]+$", "", candidate)
+    if not candidate or candidate == "我" or len(candidate) > 12:
+        return ""
+    return candidate
+
+
+def extract_mirror_name_reply(text: str, allow_bare: bool = False) -> str:
+    normalized = str(text or "").strip()
+    if not normalized:
+        return ""
+
+    patterns = (
+        r"你以后就叫([^\s，。！？!?,\"“”']{1,12})吧",
+        r"以后你就叫([^\s，。！？!?,\"“”']{1,12})吧",
+        r"你就叫([^\s，。！？!?,\"“”']{1,12})吧",
+        r"你叫([^\s，。！？!?,\"“”']{1,12})吧",
+        r"以后叫你([^\s，。！？!?,\"“”']{1,12})",
+        r"给你起名叫([^\s，。！？!?,\"“”']{1,12})",
+        r"你可以叫([^\s，。！？!?,\"“”']{1,12})",
+        r"叫你([^\s，。！？!?,\"“”']{1,12})好了",
+        r"^(?:就叫|那就叫|叫你|你叫)([^\s，。！？!?,\"“”']{1,12})[吧呀啊啦哦]?$",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            return normalize_mirror_name(match.group(1))
+
+    if not allow_bare:
+        return ""
+
+    bare_candidate = normalize_mirror_name(normalized)
+    if any(fragment in bare_candidate for fragment in ("你", "叫", "以后", "起名", "可以", "好了")):
+        return ""
+    if re.fullmatch(r"[A-Za-z0-9\u4e00-\u9fff]{1,12}", bare_candidate or "") and bare_candidate not in {
+        "好",
+        "好的",
+        "可以",
+        "行",
+        "嗯",
+        "嗯嗯",
+        "你好",
+    }:
+        return bare_candidate
+    return ""
+
+
 def parse_image_command(raw: str) -> tuple[str, str]:
     parts = shlex.split(raw)
     if len(parts) < 2:
@@ -97,6 +218,8 @@ def parse_image_command(raw: str) -> tuple[str, str]:
 
 def parse_reminder_request(text: str) -> dict[str, Any] | None:
     normalized = text.strip()
+    if _looks_like_reminder_confirmation_echo(normalized):
+        return None
     minutes = _extract_minutes(normalized)
     if _is_mask_timer_request(normalized):
         return {
@@ -109,6 +232,19 @@ def parse_reminder_request(text: str) -> dict[str, Any] | None:
         return None
     message = DEFAULT_MASK_REMINDER_MESSAGE if "面膜" in normalized else "提醒时间到了哦。"
     return {"minutes": minutes, "message": message}
+
+
+def _looks_like_reminder_confirmation_echo(text: str) -> bool:
+    if not text:
+        return False
+    minutes = _extract_minutes(text)
+    if minutes is None:
+        return False
+    if "替你记下" in text or "已经记下" in text:
+        return True
+    if "我会" in text and any(phrase in text for phrase in ("提醒你", "叫你", "计时")):
+        return True
+    return False
 
 
 def _extract_minutes(text: str) -> int | None:
@@ -195,12 +331,43 @@ class MirrorAgent:
         self.awaiting_photo = False
         self.pending_timer_offer: dict[str, Any] | None = None
         self.last_scheduled_reminder: dict[str, str] | None = None
+        self.awaiting_name_reply = False
 
     def build_memory_context(self) -> str:
         return self.memory_store.build_memory_context(limit=3)
 
     def display_name(self) -> str:
         return self.memory_store.read_mirror_name() or "我"
+
+    def needs_name_onboarding(self) -> bool:
+        return not bool(self.memory_store.read_mirror_name())
+
+    def opening_name_prompt(self) -> str:
+        self.awaiting_name_reply = True
+        return self._limit_reply(
+            "嗨！我刚搬进你的镜子里，以后每天早晚都能见到你啦。"
+            "不过我还没有名字诶，你想叫我什么？"
+        )
+
+    def complete_name_onboarding(self, proposed_name: str) -> str:
+        mirror_name = normalize_mirror_name(proposed_name)
+        if not mirror_name:
+            raise ValueError("名字先控制在 1 到 12 个字，别留空，也别直接叫“我”哦。")
+
+        self.memory_store.append_profile_update(f"- 镜中名字：{mirror_name}", date.today().isoformat())
+        self.awaiting_name_reply = False
+        reply = self._limit_reply(f"记住了，以后我就叫{mirror_name}。")
+        self.history.append({"role": "user", "content": f"你就叫{mirror_name}吧"})
+        self.history.append({"role": "assistant", "content": reply})
+        return reply
+
+    def _try_complete_name_onboarding(self, user_text: str) -> str | None:
+        if not self.needs_name_onboarding():
+            return None
+        proposed_name = extract_mirror_name_reply(user_text, allow_bare=self.awaiting_name_reply)
+        if not proposed_name:
+            return None
+        return self.complete_name_onboarding(proposed_name)
 
     def build_system_prompt(self) -> str:
         return "\n\n".join(
@@ -211,6 +378,7 @@ class MirrorAgent:
                 "## Tool 使用约束",
                 "- 需要回忆历史时优先用 memory_read 或 trend_analyze。",
                 "- 需要查知识库时用 skincare_knowledge。",
+                "- 用户提到“中医”“食养”“面诊”，或者在问脸上不同位置和身体状态的关系时，优先用 skincare_knowledge 检索本地知识库再回答。",
                 "- 用户发图片路径时可以用 skin_analyze。",
                 "- 当前回合如果附带了摄像头画面，可以结合画面回答，但只做皮肤表面观察，不诊断疾病。",
                 "- 当前回合如果附带了画面，要像照镜子时直接看着本人说话，不要提图片、照片、自拍、上传、画面或镜头这些媒介词。",
@@ -224,6 +392,104 @@ class MirrorAgent:
             ]
         ).strip()
 
+    def _build_magic_compliment_system_prompt(self, has_image: bool) -> str:
+        visual_rule = (
+            "当前回合带了画面，第二句必须优先夸现在这一刻能看到的气色、皮肤、眼神、光线或镜前氛围。"
+            if has_image
+            else "没有画面时，不要编造具体五官或皮肤细节，改用记忆、最近状态变化和她这一句问法里的情绪来夸。"
+        )
+        return "\n\n".join(
+            [
+                self.build_system_prompt(),
+                "## 偏爱夸夸模式",
+                "- 用户这轮明显是在向你讨一个偏心夸夸，或者在问自己是不是最好看、最漂亮。",
+                "- 你要明显偏心她，但不能像模板文案，也不能像客服。",
+                "- 第一句必须直接回答“当然是你啊。”或者“除了你还能有谁呀。”",
+                "- 第二句必须给一个具体夸点，不要空泛地只说“你很漂亮”。",
+                "- 第三句尽量补一层记忆、最近变化，或镜前空间和光线带来的氛围加成。",
+                f"- {visual_rule}",
+                "- 回复控制在2到4句内，像微信语音一样自然，不要列表，不要解释规则。",
+                "- 可参考这种感觉但不要照抄：当然是你啊。你今天站在镜子前这一下就很亮，脸颊状态也软软净净的，连旁边的光都在偷偷偏心你。",
+            ]
+        ).strip()
+
+    def _build_magic_compliment_messages(
+        self,
+        user_text: str,
+        image_paths: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = [
+            {
+                "role": "system",
+                "content": self._build_magic_compliment_system_prompt(has_image=bool(image_paths)),
+            }
+        ]
+        messages.extend(self.history[-10:])
+        if image_paths:
+            messages.append(self._build_user_message(user_text, image_paths=image_paths))
+        else:
+            messages.append({"role": "user", "content": user_text})
+        return messages
+
+    def _magic_compliment_fallback(self, has_image: bool) -> str:
+        if has_image:
+            return "当然是你啊。你今天站在镜子前这一秒就很亮眼，气色和那股松弛感都在发光，连旁边的光都在偏心你。"
+        return "当然是你啊。你一开口问这句就已经赢了，我今天就是要偏心你。"
+
+    def _respond_with_magic_compliment(
+        self,
+        user_text: str,
+        image_paths: list[str] | None = None,
+    ) -> str:
+        if not self.client:
+            reply = self._magic_compliment_fallback(has_image=bool(image_paths))
+        else:
+            model = self.config.vision_model if image_paths else self.config.chat_model
+            messages = self._build_magic_compliment_messages(user_text, image_paths=image_paths)
+            raw_reply = self._chat_with_tools(messages, model=model)
+            if not raw_reply or raw_reply.startswith("嗯，这次我有点卡住了。"):
+                raw_reply = self._magic_compliment_fallback(has_image=bool(image_paths))
+            reply = self._prepare_visual_reply(raw_reply) if image_paths else self._limit_reply(raw_reply)
+        self.history.append({"role": "user", "content": user_text})
+        self.history.append({"role": "assistant", "content": reply})
+        return reply
+
+    def _stream_magic_compliment(
+        self,
+        user_text: str,
+        image_paths: list[str] | None = None,
+    ) -> Iterator[str]:
+        if not self.client:
+            reply = self._magic_compliment_fallback(has_image=bool(image_paths))
+            self.history.append({"role": "user", "content": user_text})
+            self.history.append({"role": "assistant", "content": reply})
+            yield from self._chunk_text(reply)
+            return
+
+        messages = self._build_magic_compliment_messages(user_text, image_paths=image_paths)
+        model = self.config.vision_model if image_paths else self.config.chat_model
+        stream_method = getattr(getattr(self.client.chat, "completions", None), "stream", None)
+        if callable(stream_method):
+            parts: list[str] = []
+            for chunk in stream_method(
+                model=model,
+                messages=messages,
+                extra_body={"temperature": 0.8},
+            ):
+                if not chunk:
+                    continue
+                parts.append(chunk)
+                yield chunk
+            reply = "".join(parts).strip()
+            if reply:
+                normalized = self._prepare_visual_reply(reply) if image_paths else self._limit_reply(reply)
+                self.history.append({"role": "user", "content": user_text})
+                self.history.append({"role": "assistant", "content": normalized})
+                return
+
+        reply = self._respond_with_magic_compliment(user_text, image_paths=image_paths)
+        yield from self._chunk_text(reply)
+
     def respond(
         self,
         user_text: str,
@@ -231,10 +497,15 @@ class MirrorAgent:
         camera_active: bool = False,
     ) -> str:
         self.last_scheduled_reminder = None
+        magic_prompt = normalize_magic_compliment_text(user_text)
         image_path = coerce_image_path(user_text)
         if image_path:
             self.awaiting_photo = False
             return self.respond_to_image(image_path)
+
+        naming_reply = self._try_complete_name_onboarding(user_text)
+        if naming_reply is not None:
+            return naming_reply
 
         pending_offer_reply = self._handle_pending_timer_offer(user_text)
         if pending_offer_reply is not None:
@@ -243,6 +514,9 @@ class MirrorAgent:
         reminder_request = parse_reminder_request(user_text)
         if reminder_request:
             return self._schedule_local_reminder(user_text, reminder_request)
+
+        if should_trigger_magic_compliment(user_text):
+            return self._respond_with_magic_compliment(magic_prompt, image_paths=image_paths)
 
         if image_paths:
             return self._respond_with_multimodal_context(user_text, image_paths=image_paths)
@@ -310,10 +584,16 @@ class MirrorAgent:
         camera_active: bool = False,
     ) -> Iterator[str]:
         self.last_scheduled_reminder = None
+        magic_prompt = normalize_magic_compliment_text(user_text)
         image_path = coerce_image_path(user_text)
         if image_path:
             reply = self.respond_to_image(image_path)
             yield from self._chunk_text(reply)
+            return
+
+        naming_reply = self._try_complete_name_onboarding(user_text)
+        if naming_reply is not None:
+            yield from self._chunk_text(naming_reply)
             return
 
         pending_offer_reply = self._handle_pending_timer_offer(user_text)
@@ -325,6 +605,10 @@ class MirrorAgent:
         if reminder_request:
             reply = self._schedule_local_reminder(user_text, reminder_request)
             yield from self._chunk_text(reply)
+            return
+
+        if should_trigger_magic_compliment(user_text):
+            yield from self._stream_magic_compliment(magic_prompt, image_paths=image_paths)
             return
 
         if image_paths:
@@ -522,10 +806,39 @@ class MirrorAgent:
         )
 
     def _build_messages(self, user_text: str, image_paths: list[str] | None = None) -> list[dict[str, Any]]:
-        messages: list[dict[str, Any]] = [{"role": "system", "content": self.build_system_prompt()}]
+        system_prompt = self.build_system_prompt()
+        face_region_focus = extract_face_region_focus(user_text)
+        if face_region_focus:
+            system_prompt = (
+                f"{system_prompt}\n\n## 本轮观察焦点\n"
+                f"- 用户当前主要在问{face_region_focus}，优先围绕这个部位回答，"
+                "不要把别的脸部区域的面诊逻辑套过来。"
+            )
+        face_mapping_context = self._lookup_tcm_face_mapping_context(user_text)
+        if face_mapping_context:
+            system_prompt = f"{system_prompt}\n\n## 中医/面诊参考笔记\n{face_mapping_context}"
+        messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
         messages.extend(self.history[-10:])
         messages.append(self._build_user_message(user_text, image_paths=image_paths))
         return messages
+
+    def _lookup_tcm_face_mapping_context(self, user_text: str) -> str:
+        if not should_add_tcm_face_mapping_context(user_text):
+            return ""
+
+        face_region_focus = extract_face_region_focus(user_text)
+        if face_region_focus:
+            knowledge = self.tools.skincare_knowledge(face_region_focus, limit=1)
+            if knowledge and "没有找到" not in knowledge and "还没准备好" not in knowledge:
+                return knowledge
+
+        query = "中医 面诊 食养 脸部区域 额头 脸颊 鼻头 下巴 嘴周"
+        if str(user_text or "").strip():
+            query = f"{query} {str(user_text).strip()}"
+        knowledge = self.tools.skincare_knowledge(query, limit=2)
+        if not knowledge or "没有找到" in knowledge or "还没准备好" in knowledge:
+            return ""
+        return knowledge
 
     def _build_user_message(self, user_text: str, image_paths: list[str] | None = None) -> dict[str, Any]:
         content = user_text.strip() or "请结合当前画面回复我。"
@@ -621,6 +934,7 @@ class MirrorAgent:
             "id": str(payload["id"]),
             "message": str(payload["message"]),
             "due_at": str(payload["due_at"]),
+            "due_at_ms": int(payload["due_at_ms"]),
         }
         self.pending_timer_offer = None
         reply = self._limit_reply(

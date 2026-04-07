@@ -9,7 +9,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Any, Callable
 
-from agent import MirrorAgent
+from agent import MirrorAgent, normalize_magic_compliment_text
 from ollama_client import OllamaAPIError
 from reminders import ReminderScheduler
 from third_party_client import ThirdPartyAPIError
@@ -77,8 +77,8 @@ def create_app(
             return ""
         wake_prompt = extract_wake_text(normalized)
         if wake_prompt is None:
-            return normalized
-        return wake_prompt.strip()
+            return normalize_magic_compliment_text(normalized)
+        return normalize_magic_compliment_text(wake_prompt.strip())
 
     def synthesize_audio_url(reply: str) -> str:
         audio_path = asyncio.run(app.voice_output.generate_audio_file(reply))  # type: ignore[attr-defined]
@@ -92,7 +92,33 @@ def create_app(
                 return label
         return "我"
 
-    def consume_scheduled_reminder() -> dict[str, str] | None:
+    def needs_name_onboarding() -> bool:
+        checker = getattr(app.agent, "needs_name_onboarding", None)  # type: ignore[attr-defined]
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:
+                return current_assistant_label() == "我"
+        return current_assistant_label() == "我"
+
+    def complete_name_onboarding(name: str) -> str:
+        completer = getattr(app.agent, "complete_name_onboarding", None)  # type: ignore[attr-defined]
+        if not callable(completer):
+            raise ValueError("现在还没准备好记住这个名字。")
+        reply = str(completer(name)).strip()
+        if not reply:
+            raise ValueError("这个名字这次没记住，我们再试一次。")
+        return reply
+
+    def opening_name_prompt() -> str:
+        opener = getattr(app.agent, "opening_name_prompt", None)  # type: ignore[attr-defined]
+        if callable(opener):
+            reply = str(opener()).strip()
+            if reply:
+                return reply
+        return "嗨！我刚搬进你的镜子里，以后每天早晚都能见到你啦。不过我还没有名字诶，你想叫我什么？"
+
+    def consume_scheduled_reminder() -> dict[str, Any] | None:
         consumer = getattr(app.agent, "consume_last_scheduled_reminder", None)  # type: ignore[attr-defined]
         if not callable(consumer):
             return None
@@ -103,6 +129,7 @@ def create_app(
             "id": str(payload.get("id", "")).strip(),
             "message": str(payload.get("message", "")).strip(),
             "due_at": str(payload.get("due_at", "")).strip(),
+            "due_at_ms": int(payload.get("due_at_ms", 0) or 0),
         }
 
     def build_interaction_payload(user_text: str, reply: str) -> dict[str, str]:
@@ -155,7 +182,11 @@ def create_app(
 
     @app.get("/")
     def index() -> str:
-        return render_template("home.html", assistant_label=current_assistant_label())
+        return render_template(
+            "home.html",
+            assistant_label=current_assistant_label(),
+            needs_onboarding=needs_name_onboarding(),
+        )
 
     @app.get("/lab")
     def lab() -> str:
@@ -198,6 +229,45 @@ def create_app(
         if scheduled_reminder:
             response_payload["scheduled_reminder"] = scheduled_reminder
         return jsonify(response_payload)
+
+    @app.get("/api/onboarding/opening")
+    def onboarding_opening() -> Any:
+        reply = opening_name_prompt()
+        audio_url = synthesize_audio_url(reply)
+        return jsonify(
+            {
+                "reply": reply,
+                "audio_url": audio_url,
+                "assistant_label": current_assistant_label(),
+                **build_interaction_payload("起名字", reply),
+            }
+        )
+
+    @app.post("/api/onboarding/name")
+    def onboarding_name() -> Any:
+        payload = request.get_json(silent=True) or {}
+        mirror_name = str(payload.get("name", "")).strip()
+        if not mirror_name:
+            return jsonify({"error": "先给她起个名字吧。"}), 400
+
+        try:
+            reply = complete_name_onboarding(mirror_name)
+            audio_url = synthesize_audio_url(reply)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        except (ThirdPartyAPIError, OllamaAPIError) as exc:
+            return json_error(str(exc), 502)
+        except Exception as exc:
+            return json_error(f"记名字时出了点岔子：{exc}", 502)
+
+        return jsonify(
+            {
+                "reply": reply,
+                "audio_url": audio_url,
+                "assistant_label": current_assistant_label(),
+                **build_interaction_payload(mirror_name, reply),
+            }
+        )
 
     @app.post("/api/image")
     def image_chat() -> Any:
@@ -345,6 +415,7 @@ def create_app(
                     "id": reminder.id,
                     "message": reminder.message,
                     "due_at": reminder.due_at,
+                    "due_at_ms": reminder.due_at_ms,
                     "audio_url": synthesize_audio_url(reminder.message),
                     "assistant_label": current_assistant_label(),
                     "ui_effect": "glow" if "面膜" in reminder.message else "sparkle",

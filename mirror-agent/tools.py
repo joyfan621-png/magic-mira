@@ -255,6 +255,14 @@ class MirrorTools:
         encoded = base64.b64encode(image_file.read_bytes()).decode("utf-8")
         recent_diaries = self.memory_store.read_recent_diaries(limit=3)
         history_context = "\n\n".join(recent_diaries) if recent_diaries else "最近还没有 diary 记录。"
+        face_mapping_context = ""
+        if _wants_tcm_face_mapping(note):
+            knowledge_query = "中医 面诊 食养 脸部区域 额头 脸颊 鼻头 下巴 嘴周"
+            if note.strip():
+                knowledge_query = f"{knowledge_query} {note.strip()}"
+            knowledge = search_knowledge(self.config.knowledge_dir, knowledge_query, limit=4)
+            if knowledge and "没有找到" not in knowledge:
+                face_mapping_context = knowledge
         prompt = f"""
 请分析这张自拍照中人物的：
 1. 整体气色（用1-10分评估）
@@ -270,6 +278,7 @@ class MirrorTools:
 - 绝不诊断疾病；如果看到明显异常，只能提醒“建议去看皮肤科”。
 - reply 要用住在镜子里的护肤闺蜜口吻写成 2-3 句话，口语一点；如果历史里已经有镜中名字，就用那个名字自称，否则直接用“我”。
 - reply 里不要说“这张图”“照片里”“自拍里”“从照片看”，直接像在和本人说话。
+- 如果用户明确想从中医、食养或面诊视角来聊，可以把可见区域和作息、情绪、饮食习惯自然联系起来，但只当生活化提醒，不要像上课，更不要当成医学诊断。
 - 只输出 JSON，不要代码块，不要额外解释，也不要展示思考过程。
 
 JSON 格式：
@@ -282,6 +291,8 @@ JSON 格式：
   "reply": "今天气色还不错嘛！7分。不过眼下有点黑眼圈，昨晚几点睡的？比昨天好一些，继续保持～"
 }}
 """.strip()
+        if face_mapping_context:
+            prompt += f"\n\n中医/面诊参考笔记：\n{face_mapping_context}"
         if note.strip():
             prompt += f"\n\n用户补充：{note.strip()}"
 
@@ -411,6 +422,7 @@ JSON 格式：
             "status": "ok",
             "message": reminder.message,
             "due_at": reminder.due_at,
+            "due_at_ms": reminder.due_at_ms,
             "id": reminder.id,
         }
 
@@ -558,6 +570,14 @@ def extract_response_text(response: Any) -> str:
 def _split_markdown_sections(text: str) -> list[str]:
     pieces = re.split(r"(?=^##+\s+)", text, flags=re.MULTILINE)
     return [piece.strip() for piece in pieces if piece.strip()]
+
+
+def _wants_tcm_face_mapping(note: str) -> bool:
+    normalized = note.strip()
+    if not normalized:
+        return False
+    keywords = ("中医", "食养", "面诊", "脸上哪个位置", "对应什么", "身体在说什么")
+    return any(keyword in normalized for keyword in keywords)
 
 
 def _load_knowledge_documents(knowledge_path: Path) -> list[str]:

@@ -6,6 +6,11 @@
   --line: rgba(255, 255, 255, 0.12);
   --glow: rgba(122, 202, 255, 0.32);
   --glow-strong: rgba(167, 226, 255, 0.56);
+  --rose: #ff86c6;
+  --rose-soft: #ffc9e6;
+  --rose-glow: rgba(255, 134, 198, 0.28);
+  --rose-glow-strong: rgba(255, 201, 230, 0.48);
+  --gold: #ffe6b2;
   --card: rgba(255, 255, 255, 0.045);
   --card-strong: rgba(255, 255, 255, 0.08);
   --shadow: 0 24px 70px rgba(0, 0, 0, 0.42);
@@ -24,7 +29,7 @@ body {
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100svh;
   overflow: hidden;
   color: var(--ink);
   font-family: var(--font-body);
@@ -41,16 +46,25 @@ canvas {
 }
 
 .home-shell {
-  min-height: 100vh;
+  min-height: 100svh;
   display: grid;
   place-items: center;
-  padding: 1rem;
+  padding: 1rem 1rem 1.25rem;
+}
+
+.home-shell-stack {
+  width: min(100vw - 2rem, 430px);
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  justify-items: center;
+  align-items: end;
+  gap: 1rem;
 }
 
 .home-frame {
   position: relative;
-  width: min(100vw - 2rem, 430px);
-  min-height: min(100vh - 2rem, 860px);
+  width: 100%;
+  height: min(calc(100svh - 8rem), 860px);
   aspect-ratio: 10 / 16;
   overflow: hidden;
   border-radius: 32px;
@@ -69,6 +83,7 @@ canvas {
   position: absolute;
   top: 1.1rem;
   left: 50%;
+  z-index: 3;
   transform: translateX(-50%);
   margin: 0;
   font-size: 0.7rem;
@@ -80,6 +95,23 @@ canvas {
 .halo-stage {
   position: absolute;
   inset: 0;
+  z-index: 0;
+  isolation: isolate;
+}
+
+.halo-stage::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 72%;
+  aspect-ratio: 1 / 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.04), transparent 68%);
+  filter: blur(18px);
+  opacity: 0.9;
+  z-index: 0;
 }
 
 .halo-core,
@@ -154,6 +186,222 @@ canvas {
   animation: sweep-fade 5.6s ease-in-out infinite;
 }
 
+.halo-scene-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.scene-layer {
+  position: absolute;
+  inset: 0;
+}
+
+.scene-haze,
+.center-glow,
+.soft-glow {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.scene-haze {
+  width: 60%;
+  aspect-ratio: 1 / 1;
+  background: radial-gradient(circle, rgba(255, 207, 233, 0.16), transparent 72%);
+  filter: blur(22px);
+  opacity: 0;
+}
+
+.center-glow,
+.soft-glow {
+  width: 160px;
+  height: 160px;
+  background: radial-gradient(circle, rgba(255, 145, 197, 0.24), transparent 70%);
+  filter: blur(18px);
+  opacity: 0;
+}
+
+.crown-svg,
+.bow-svg,
+.ribbon-svg {
+  position: absolute;
+  overflow: visible;
+}
+
+.symbol-path,
+.ribbon-path {
+  fill: none;
+  stroke: var(--rose-soft);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 320;
+  stroke-dashoffset: 320;
+  filter: drop-shadow(0 0 10px rgba(255, 166, 214, 0.34));
+}
+
+.wand-line,
+.wand-echo {
+  position: absolute;
+  left: 24%;
+  top: 45%;
+  width: 42%;
+  height: 1.5px;
+  transform: rotate(-22deg);
+  transform-origin: left center;
+  opacity: 0;
+}
+
+.wand-line {
+  background: linear-gradient(90deg, transparent, rgba(255, 230, 243, 0.98) 24%, rgba(255, 127, 188, 0.14));
+}
+
+.wand-echo {
+  background: linear-gradient(90deg, transparent, rgba(255, 196, 227, 0.7) 22%, rgba(255, 127, 188, 0.08));
+  filter: blur(4px);
+}
+
+.wand-star,
+.spiral-star,
+.jewel-dot {
+  position: absolute;
+  width: var(--size, 14px);
+  height: var(--size, 14px);
+}
+
+.wand-star,
+.spiral-star {
+  background: linear-gradient(180deg, #fff2d1, #ffb4db);
+  clip-path: polygon(50% 0%, 62% 36%, 100% 50%, 62% 64%, 50% 100%, 38% 64%, 0% 50%, 38% 36%);
+  box-shadow: 0 0 16px rgba(255, 241, 206, 0.3);
+}
+
+.jewel-dot {
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff8df, #ffe1a6 62%, #ffcb75 100%);
+  box-shadow: 0 0 14px rgba(255, 231, 166, 0.36);
+}
+
+.ribbon-knot {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  margin-top: -6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fff4fb, #ffb8dc 60%, #ff7ebb 100%);
+  box-shadow: 0 0 16px rgba(255, 151, 204, 0.4);
+}
+
+.stage-crown-trace .crown-svg {
+  left: 50%;
+  top: 27%;
+  width: 46%;
+  height: 18%;
+  transform: translate(-50%, -50%);
+}
+
+.stage-crown-trace .symbol-path {
+  animation: symbolTrace 2.4s ease-in-out forwards;
+}
+
+.stage-crown-trace .jewel-dot {
+  left: var(--left);
+  top: var(--top);
+  animation: jewelFlash 2.2s ease-in-out forwards;
+  animation-delay: var(--delay, 0s);
+}
+
+.stage-crown-trace .crown-haze {
+  animation: crownHaze 2.4s ease-in-out forwards;
+}
+
+.stage-wand-sweep .listening-haze {
+  animation: listeningBloom 2.2s ease-in-out infinite;
+}
+
+.stage-wand-sweep .wand-line {
+  animation: wandTrailWide 2.2s ease-in-out infinite;
+}
+
+.stage-wand-sweep .wand-echo {
+  animation: wandTrailEcho 2.2s ease-out infinite;
+}
+
+.stage-wand-sweep .wand-star {
+  left: 22%;
+  top: 54%;
+  animation: wandArcMove 2.2s ease-in-out infinite;
+}
+
+.stage-star-spiral .thinking-haze {
+  animation: thinkingBloom 3.8s ease-in-out infinite;
+}
+
+.stage-star-spiral .center-glow {
+  animation: centerGatherGlow 3.8s ease-in-out infinite;
+}
+
+.stage-star-spiral .spiral-star {
+  left: 50%;
+  top: 42%;
+  animation: spiralOrbit 3.8s linear infinite;
+  animation-delay: var(--delay, 0s);
+}
+
+.stage-bow-flash .bow-svg {
+  left: 50%;
+  top: 42%;
+  width: 48%;
+  height: 20%;
+  transform: translate(-50%, -50%);
+}
+
+.stage-bow-flash .symbol-path {
+  animation: symbolTrace 2.1s ease-in-out forwards;
+}
+
+.stage-bow-flash .reply-haze {
+  animation: replyBloom 2.1s ease-in-out forwards;
+}
+
+.stage-bow-flash .soft-glow {
+  animation: coreGlow 2.1s ease-in-out forwards;
+}
+
+.stage-ribbon-sway .ribbon-svg.left {
+  left: 14%;
+  top: 24%;
+  width: 40%;
+  height: 30%;
+  animation: ribbonSwayLeft 4.8s ease-in-out infinite;
+}
+
+.stage-ribbon-sway .ribbon-svg.right {
+  right: 14%;
+  top: 24%;
+  width: 40%;
+  height: 30%;
+  transform: scaleX(-1);
+  animation: ribbonSwayRight 4.8s ease-in-out infinite;
+}
+
+.stage-ribbon-sway .ribbon-path {
+  animation: ribbonTrace 4.8s ease-in-out infinite;
+}
+
+.stage-ribbon-sway .ribbon-knot {
+  animation: idleGlow 4.8s ease-in-out infinite;
+}
+
 .halo-stage[data-scene="listening"] .halo-core,
 .halo-stage[data-scene="reply"] .halo-core {
   transform: translate(-50%, -50%) scale(1.04);
@@ -169,6 +417,11 @@ canvas {
   transform: translate(-50%, -50%) scale(0.98);
 }
 
+.halo-stage[data-scene="startup"] .halo-ring-one,
+.halo-stage[data-scene="reply"] .halo-ring-one {
+  transform: translate(-50%, -50%) scale(1.04);
+}
+
 .halo-stage[data-scene="thinking"] .halo-orbit {
   animation-duration: 7s;
   opacity: 0.9;
@@ -178,10 +431,25 @@ canvas {
   opacity: 0.72;
 }
 
+.halo-stage[data-scene="thinking"] .halo-sweep {
+  opacity: 0.44;
+}
+
+.halo-stage[data-reminder="active"] .halo-ring,
+.halo-stage[data-reminder="due"] .halo-ring {
+  border-color: rgba(255, 210, 169, 0.22);
+  box-shadow: 0 0 20px rgba(255, 210, 169, 0.12);
+}
+
+.halo-stage[data-reminder="due"] .halo-core {
+  filter: drop-shadow(0 0 30px rgba(255, 213, 176, 0.22));
+}
+
 .subtitle-panel {
   position: absolute;
   left: 50%;
   bottom: 7.1rem;
+  z-index: 3;
   transform: translateX(-50%);
   width: min(calc(100% - 2.2rem), 18rem);
   padding: 0.85rem 0.95rem;
@@ -226,6 +494,7 @@ canvas {
   position: absolute;
   left: 1rem;
   bottom: 1rem;
+  z-index: 3;
   width: 8.8rem;
   padding: 0.85rem 0.9rem;
   border-radius: 18px;
@@ -236,6 +505,24 @@ canvas {
 
 .countdown-panel[hidden] {
   display: none;
+}
+
+.countdown-panel[data-state="active"] {
+  border-color: rgba(255, 230, 178, 0.18);
+  box-shadow:
+    0 18px 32px rgba(0, 0, 0, 0.28),
+    0 0 26px rgba(255, 212, 171, 0.08);
+  animation: reminderPanelGlow 2.8s ease-in-out infinite;
+}
+
+.countdown-panel[data-state="due"] {
+  border-color: rgba(255, 230, 178, 0.26);
+  background:
+    linear-gradient(180deg, rgba(255, 244, 214, 0.14), rgba(255, 170, 206, 0.08)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
+  box-shadow:
+    0 18px 32px rgba(0, 0, 0, 0.28),
+    0 0 32px rgba(255, 192, 159, 0.16);
 }
 
 .countdown-label {
@@ -264,12 +551,20 @@ canvas {
   position: absolute;
   right: 1rem;
   bottom: 1rem;
+  z-index: 3;
   width: 8.5rem;
   padding: 0.4rem;
   border-radius: 22px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.03));
   border: 1px solid var(--line);
   box-shadow: 0 18px 32px rgba(0, 0, 0, 0.3);
+}
+
+.camera-float[data-active="true"] {
+  border-color: rgba(167, 226, 255, 0.22);
+  box-shadow:
+    0 18px 32px rgba(0, 0, 0, 0.3),
+    0 0 26px rgba(141, 214, 255, 0.12);
 }
 
 .camera-preview {
@@ -295,13 +590,13 @@ canvas {
   color: rgba(255, 255, 255, 0.56);
 }
 
-.home-controls {
-  position: absolute;
-  left: 50%;
-  bottom: 2.2rem;
-  transform: translateX(-50%);
+.home-shell-controls {
   display: flex;
   gap: 0.7rem;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0 0.3rem;
 }
 
 .ghost-button {
@@ -320,23 +615,18 @@ canvas {
   background: rgba(255, 255, 255, 0.11);
 }
 
+.ghost-button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+  background: rgba(255, 255, 255, 0.05);
+}
+
 .primary-button {
   background: linear-gradient(180deg, rgba(141, 214, 255, 0.16), rgba(255, 255, 255, 0.08));
   box-shadow:
     inset 0 0 0 1px rgba(141, 214, 255, 0.16),
     0 0 22px rgba(141, 214, 255, 0.08);
-}
-
-.status-line {
-  position: absolute;
-  left: 50%;
-  bottom: 0.9rem;
-  transform: translateX(-50%);
-  width: min(calc(100% - 3rem), 18rem);
-  text-align: center;
-  color: rgba(255, 255, 255, 0.46);
-  font-size: 0.74rem;
-  line-height: 1.45;
 }
 
 @keyframes halo-breathe {
@@ -375,12 +665,274 @@ canvas {
   }
 }
 
+@keyframes symbolTrace {
+  0% {
+    opacity: 0;
+    stroke-dashoffset: 320;
+  }
+  22% {
+    opacity: 1;
+  }
+  44%,
+  84% {
+    opacity: 1;
+    stroke-dashoffset: 0;
+  }
+  100% {
+    opacity: 0.26;
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes jewelFlash {
+  0%,
+  16% {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  32% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  72% {
+    opacity: 0.72;
+    transform: scale(0.76);
+  }
+  100% {
+    opacity: 0.24;
+    transform: scale(0.6);
+  }
+}
+
+@keyframes crownHaze {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.74);
+  }
+  40% {
+    opacity: 0.7;
+    transform: translate(-50%, -50%) scale(1.02);
+  }
+  72% {
+    opacity: 0.18;
+    transform: translate(-50%, -50%) scale(1.14);
+  }
+}
+
+@keyframes listeningBloom {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  42% {
+    opacity: 0.44;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+@keyframes thinkingBloom {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: translate(-50%, -50%) scale(0.88);
+  }
+  38% {
+    opacity: 0.36;
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+}
+
+@keyframes replyBloom {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  36% {
+    opacity: 0.76;
+    transform: translate(-50%, -50%) scale(1.04);
+  }
+  72% {
+    opacity: 0.18;
+    transform: translate(-50%, -50%) scale(1.16);
+  }
+}
+
+@keyframes wandTrailWide {
+  0% {
+    opacity: 0;
+    transform: rotate(-22deg) scaleX(0.22);
+  }
+  26%,
+  58% {
+    opacity: 1;
+    transform: rotate(-22deg) scaleX(1);
+  }
+  100% {
+    opacity: 0.08;
+    transform: rotate(-22deg) scaleX(1.1);
+  }
+}
+
+@keyframes wandTrailEcho {
+  0%,
+  18% {
+    opacity: 0;
+    transform: rotate(-22deg) scaleX(0.18);
+  }
+  44% {
+    opacity: 0.56;
+    transform: rotate(-22deg) scaleX(1.08);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(-22deg) scaleX(1.22);
+  }
+}
+
+@keyframes wandArcMove {
+  0% {
+    opacity: 0;
+    transform: translate(0, 0) scale(0.18) rotate(0deg);
+  }
+  38% {
+    opacity: 1;
+    transform: translate(110px, -110px) scale(1) rotate(110deg);
+  }
+  72% {
+    opacity: 0.58;
+    transform: translate(170px, -116px) scale(0.72) rotate(220deg);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(196px, -120px) scale(0.18) rotate(280deg);
+  }
+}
+
+@keyframes centerGatherGlow {
+  0%,
+  100% {
+    opacity: 0.16;
+    transform: translate(-50%, -50%) scale(0.82);
+  }
+  40% {
+    opacity: 0.72;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+}
+
+@keyframes spiralOrbit {
+  0% {
+    opacity: 0.24;
+    transform: rotate(var(--angle)) translateY(calc(var(--radius) * -1)) scale(0.35);
+  }
+  28% {
+    opacity: 1;
+  }
+  62% {
+    opacity: 0.9;
+    transform: rotate(calc(var(--angle) + 150deg)) translateY(calc((var(--radius) - 10px) * -1)) scale(1);
+  }
+  100% {
+    opacity: 0.18;
+    transform: rotate(calc(var(--angle) + 300deg)) translateY(calc((var(--radius) + 8px) * -1)) scale(0.38);
+  }
+}
+
+@keyframes coreGlow {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.72);
+  }
+  38% {
+    opacity: 0.82;
+    transform: translate(-50%, -50%) scale(1.06);
+  }
+  72% {
+    opacity: 0.22;
+    transform: translate(-50%, -50%) scale(1.18);
+  }
+}
+
+@keyframes ribbonTrace {
+  0%,
+  100% {
+    opacity: 0.34;
+    stroke-dashoffset: 0;
+  }
+  42% {
+    opacity: 0.9;
+    stroke-dashoffset: 48;
+  }
+}
+
+@keyframes ribbonSwayLeft {
+  0%,
+  100% {
+    transform: translateY(4px) rotate(-6deg);
+    opacity: 0.36;
+  }
+  42% {
+    transform: translateY(-4px) rotate(2deg);
+    opacity: 1;
+  }
+  72% {
+    transform: translateY(2px) rotate(6deg);
+    opacity: 0.72;
+  }
+}
+
+@keyframes ribbonSwayRight {
+  0%,
+  100% {
+    transform: scaleX(-1) translateY(-4px) rotate(-4deg);
+    opacity: 0.36;
+  }
+  42% {
+    transform: scaleX(-1) translateY(5px) rotate(2deg);
+    opacity: 1;
+  }
+  72% {
+    transform: scaleX(-1) translateY(-2px) rotate(6deg);
+    opacity: 0.72;
+  }
+}
+
+@keyframes idleGlow {
+  0%,
+  100% {
+    opacity: 0.34;
+    transform: scale(0.86);
+  }
+  42% {
+    opacity: 0.92;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes reminderPanelGlow {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1px);
+  }
+}
+
 @media (max-height: 760px) {
   .subtitle-panel {
     bottom: 6.6rem;
   }
 
-  .home-controls {
-    bottom: 2rem;
+  .home-shell-stack {
+    gap: 0.85rem;
+  }
+
+  .home-frame {
+    height: min(calc(100svh - 7.5rem), 820px);
   }
 }

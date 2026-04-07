@@ -9,13 +9,22 @@ class FrontendContractTests(unittest.TestCase):
     def test_halo_home_template_exposes_display_only_controls(self) -> None:
         template = (PROJECT_ROOT / "templates" / "home.html").read_text(encoding="utf-8")
 
+        self.assertIn('class="home-shell-stack"', template)
+        self.assertIn('class="home-shell-controls"', template)
         self.assertIn('id="camera-switch-button"', template)
         self.assertIn('id="camera-button"', template)
         self.assertIn('id="halo-stage"', template)
         self.assertIn('id="subtitle-panel"', template)
         self.assertIn('id="countdown-panel"', template)
+        self.assertIn('data-needs-onboarding="{{', template)
+        self.assertNotIn('class="home-controls"', template)
+        self.assertNotIn("Live Mirror", template)
+        self.assertNotIn('id="status"', template)
         self.assertNotIn('id="voice-button"', template)
         self.assertNotIn('id="camera-select"', template)
+        self.assertNotIn('id="onboarding-overlay"', template)
+        self.assertNotIn('id="mirror-name-input"', template)
+        self.assertNotIn('id="onboarding-submit"', template)
 
     def test_halo_home_script_cycles_camera_devices_without_dropdown(self) -> None:
         script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
@@ -31,6 +40,102 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('const userSubtitleEl = document.getElementById("user-subtitle");', script)
         self.assertIn('const agentSubtitleEl = document.getElementById("agent-subtitle");', script)
         self.assertIn("function renderReminder(reminder)", script)
+
+    def test_halo_home_script_triggers_reminder_when_countdown_hits_zero(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn("async function triggerReminderDue(reminder, options = {})", script)
+        self.assertIn("if (remainingMs <= 0) {", script)
+        self.assertIn("void triggerReminderDue(normalized, { preferBackend: true });", script)
+
+    def test_halo_home_script_prefers_numeric_reminder_timestamp_for_countdown(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn("due_at_ms", script)
+        self.assertIn("Number(reminder.due_at_ms ?? reminder.dueAtMs)", script)
+
+    def test_tablet_script_prefers_numeric_reminder_timestamp_for_countdown(self) -> None:
+        script = (PROJECT_ROOT / "static" / "tablet.js").read_text(encoding="utf-8")
+
+        self.assertIn("due_at_ms", script)
+        self.assertIn("Number(reminder.due_at_ms ?? reminder.dueAtMs)", script)
+
+    def test_halo_home_script_ignores_recent_assistant_echo_when_auto_listening(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn("function rememberAssistantSpeech(text)", script)
+        self.assertIn("function isLikelyAssistantEcho(text)", script)
+        self.assertIn("if (autoStarted && isLikelyAssistantEcho(userSubtitleEl.textContent)) {", script)
+
+    def test_halo_home_script_hides_countdown_card_after_due_reminder_finishes(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn("function clearReminderDisplay()", script)
+        self.assertIn("window.setTimeout(() => {", script)
+        self.assertIn("clearReminderDisplay();", script)
+
+    def test_halo_home_script_restores_pending_countdown_from_shared_state_on_boot(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn("function restoreReminderFromSharedState(state)", script)
+        self.assertIn("const initialTabletState = readTabletState();", script)
+        self.assertIn("restoreReminderFromSharedState(initialTabletState);", script)
+        self.assertIn("setActiveReminder(state.reminder);", script)
+
+    def test_halo_home_script_plays_voice_name_prompt_when_onboarding_needed(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn('const needsNameOnboarding = document.body.dataset.needsOnboarding === "true";', script)
+        self.assertIn("async function playOpeningGreetingIfNeeded()", script)
+        self.assertIn('fetch("/api/onboarding/opening"', script)
+        self.assertIn('agentSubtitleEl.textContent = payload.reply;', script)
+        self.assertIn("rememberAssistantSpeech(payload.reply);", script)
+
+    def test_halo_home_styles_do_not_define_onboarding_form_overlay(self) -> None:
+        stylesheet = (PROJECT_ROOT / "static" / "home.css").read_text(encoding="utf-8")
+
+        self.assertIn(".ghost-button:disabled", stylesheet)
+        self.assertNotIn(".onboarding-overlay", stylesheet)
+        self.assertNotIn(".onboarding-card", stylesheet)
+        self.assertNotIn(".onboarding-input", stylesheet)
+
+    def test_halo_home_template_reserves_scene_overlay_layer(self) -> None:
+        template = (PROJECT_ROOT / "templates" / "home.html").read_text(encoding="utf-8")
+
+        self.assertIn('id="halo-scene-overlay"', template)
+
+    def test_halo_home_frontend_uses_the_same_five_scene_variants_as_tablet_display(self) -> None:
+        script = (PROJECT_ROOT / "static" / "home.js").read_text(encoding="utf-8")
+
+        self.assertIn('const haloSceneOverlay = document.getElementById("halo-scene-overlay");', script)
+        self.assertIn('const SCENE_VARIANTS = {', script)
+        self.assertIn('"startup": "crown-trace"', script)
+        self.assertIn('"listening": "wand-sweep"', script)
+        self.assertIn('"thinking": "star-spiral"', script)
+        self.assertIn('"reply": "bow-flash"', script)
+        self.assertIn('"idle": "ribbon-sway"', script)
+        self.assertIn("const stageTemplates = {", script)
+        self.assertIn("function renderScene(scene)", script)
+
+    def test_halo_home_styles_define_overlay_animation_variants(self) -> None:
+        stylesheet = (PROJECT_ROOT / "static" / "home.css").read_text(encoding="utf-8")
+
+        self.assertIn(".halo-scene-overlay", stylesheet)
+        self.assertIn(".stage-crown-trace", stylesheet)
+        self.assertIn(".stage-wand-sweep", stylesheet)
+        self.assertIn(".stage-star-spiral", stylesheet)
+        self.assertIn(".stage-bow-flash", stylesheet)
+        self.assertIn(".stage-ribbon-sway", stylesheet)
+        self.assertIn("@keyframes symbolTrace", stylesheet)
+        self.assertIn("@keyframes spiralOrbit", stylesheet)
+        self.assertIn("@keyframes ribbonSwayLeft", stylesheet)
+
+    def test_halo_home_css_keeps_outer_controls_visible_within_first_viewport(self) -> None:
+        stylesheet = (PROJECT_ROOT / "static" / "home.css").read_text(encoding="utf-8")
+
+        self.assertIn("min-height: 100svh;", stylesheet)
+        self.assertIn("grid-template-rows: minmax(0, 1fr) auto;", stylesheet)
+        self.assertIn("height: min(calc(100svh - 8rem), 860px);", stylesheet)
 
     def test_send_button_can_fallback_to_bottom_input_text(self) -> None:
         script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")

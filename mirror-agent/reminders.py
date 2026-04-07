@@ -16,6 +16,7 @@ class Reminder:
     id: str
     message: str
     due_at: str
+    due_at_ms: int
     source_text: str = ""
 
 
@@ -26,11 +27,16 @@ class ReminderScheduler:
         self._items: list[Reminder] = []
 
     def schedule_in_minutes(self, minutes: int, message: str, source_text: str = "") -> Reminder:
-        due_time = self._now_func() + timedelta(minutes=max(int(minutes), 0))
+        minutes_value = max(int(minutes), 0)
+        due_time = self._now_func() + timedelta(minutes=minutes_value)
+        if due_time.microsecond and minutes_value > 0:
+            due_time = due_time + timedelta(seconds=1)
+        due_time = due_time.replace(microsecond=0)
         reminder = Reminder(
             id=uuid4().hex,
             message=str(message).strip() or "提醒时间到了哦。",
-            due_at=due_time.isoformat(),
+            due_at=due_time.isoformat(timespec="seconds"),
+            due_at_ms=int(due_time.timestamp() * 1000),
             source_text=str(source_text).strip(),
         )
         with self._lock:
@@ -43,12 +49,12 @@ class ReminderScheduler:
         return reminder
 
     def pop_due(self) -> list[Reminder]:
-        now = self._now_func()
+        now_ms = int(self._now_func().timestamp() * 1000)
         due_items: list[Reminder] = []
         pending_items: list[Reminder] = []
         with self._lock:
             for item in self._items:
-                if datetime.fromisoformat(item.due_at) <= now:
+                if item.due_at_ms <= now_ms:
                     due_items.append(item)
                 else:
                     pending_items.append(item)
