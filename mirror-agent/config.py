@@ -53,7 +53,10 @@ class AppConfig:
             provider=provider,
             api_key=os.getenv("AIPING_API_KEY", os.getenv("ZHIPUAI_API_KEY", DEFAULT_API_KEY)),
             chat_model=os.getenv("AIPING_CHAT_MODEL", os.getenv("ZHIPUAI_CHAT_MODEL", "GLM-5")),
-            vision_model=os.getenv("AIPING_VISION_MODEL", os.getenv("ZHIPUAI_VISION_MODEL", "GLM-5")),
+            vision_model=os.getenv(
+                "AIPING_VISION_MODEL",
+                os.getenv("ZHIPUAI_VISION_MODEL", "Doubao-Seed-2.0-pro"),
+            ),
             base_url=os.getenv("AIPING_BASE_URL", DEFAULT_AIPING_BASE_URL),
             request_timeout=int(os.getenv("AIPING_REQUEST_TIMEOUT", "60")),
         )

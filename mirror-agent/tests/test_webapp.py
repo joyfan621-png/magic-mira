@@ -403,3 +403,24 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(1, len(payload["reminders"]))
         self.assertEqual("面膜时间到了，记得摘掉并轻轻按摩一下哦。", payload["reminders"][0]["message"])
         self.assertTrue(payload["reminders"][0]["audio_url"].startswith("/audio/"))
+
+    def test_due_reminders_route_marks_mask_timer_as_glow_effect(self) -> None:
+        scheduler = ReminderScheduler()
+        scheduler.schedule_in_minutes(
+            minutes=0,
+            message="面膜时间到了，记得摘掉并轻轻按摩一下哦。",
+            source_text="我在敷面膜，15分钟后提醒我。",
+        )
+        client = create_app(
+            agent=self.stub_agent,
+            transcribe_audio=lambda path: "看看我",
+            voice_output_factory=lambda temp_dir: self.voice_output,
+            reminder_scheduler=scheduler,
+        ).test_client()
+
+        response = client.get("/api/reminders/due")
+
+        self.assertEqual(200, response.status_code)
+        payload = response.get_json()
+        self.assertEqual("我", payload["assistant_label"])
+        self.assertEqual("glow", payload["reminders"][0]["ui_effect"])

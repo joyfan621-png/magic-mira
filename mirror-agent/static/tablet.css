@@ -162,6 +162,7 @@ body {
 
 .crown-svg,
 .bow-svg,
+.ear-svg,
 .ribbon-svg {
   position: absolute;
   inset: 24% 18%;
@@ -180,6 +181,25 @@ body {
   stroke-dasharray: 320;
   stroke-dashoffset: 320;
   filter: drop-shadow(0 0 10px rgba(255, 136, 196, 0.35));
+}
+
+.ear-path,
+.ear-inner-path {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ear-path {
+  fill: rgba(255, 187, 220, 0.12);
+  stroke: rgba(255, 198, 226, 0.9);
+  stroke-width: 2.2;
+  filter: drop-shadow(0 0 14px rgba(255, 136, 196, 0.26));
+}
+
+.ear-inner-path {
+  fill: none;
+  stroke: rgba(255, 235, 244, 0.72);
+  stroke-width: 1.6;
 }
 
 .center-glow,
@@ -277,6 +297,37 @@ body {
   top: 50%;
   animation: spiralOrbit 3.8s linear infinite;
   animation-delay: var(--delay, 0s);
+}
+
+.stage-ear-wiggle .soft-glow {
+  animation: coreGlow 1.8s ease-in-out forwards;
+}
+
+.stage-ear-wiggle .ear-svg.left {
+  inset: 14% 44% 18% 10%;
+  width: 38%;
+  height: 64%;
+  transform-origin: 60% 100%;
+  animation: earWiggleLeft 1.8s ease-in-out forwards;
+}
+
+.stage-ear-wiggle .ear-svg.right {
+  inset: 14% 10% 18% 44%;
+  width: 38%;
+  height: 64%;
+  transform-origin: 40% 100%;
+  animation: earWiggleRight 1.8s ease-in-out forwards;
+}
+
+.stage-ear-wiggle .jewel-dot {
+  left: var(--left);
+  top: var(--top);
+  animation: jewelFlash 1.8s ease-in-out forwards;
+  animation-delay: var(--delay, 0s);
+}
+
+.stage-ear-wiggle .ribbon-knot {
+  animation: idleGlow 1.8s ease-in-out forwards;
 }
 
 .stage-bow-flash .bow-svg {
@@ -433,6 +484,48 @@ body {
   72% {
     opacity: 0.22;
     transform: translate(-50%, -50%) scale(1.18);
+  }
+}
+
+@keyframes earWiggleLeft {
+  0% {
+    opacity: 0;
+    transform: rotate(-20deg) scale(0.86);
+  }
+  24% {
+    opacity: 1;
+    transform: rotate(-4deg) scale(1);
+  }
+  48% {
+    transform: rotate(-18deg) scale(1.02);
+  }
+  70% {
+    transform: rotate(-2deg) scale(0.98);
+  }
+  100% {
+    opacity: 0.38;
+    transform: rotate(-10deg) scale(0.92);
+  }
+}
+
+@keyframes earWiggleRight {
+  0% {
+    opacity: 0;
+    transform: rotate(20deg) scale(0.86);
+  }
+  24% {
+    opacity: 1;
+    transform: rotate(4deg) scale(1);
+  }
+  48% {
+    transform: rotate(18deg) scale(1.02);
+  }
+  70% {
+    transform: rotate(2deg) scale(0.98);
+  }
+  100% {
+    opacity: 0.38;
+    transform: rotate(10deg) scale(0.92);
   }
 }
 

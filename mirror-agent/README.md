@@ -83,8 +83,15 @@ python main.py --voice
 默认配置：
 
 - 唤醒词：`小镜`
-- Whisper 模型：`base`
+- Whisper 模型：`small`
 - TTS 声音：`zh-CN-XiaoyiNeural`
+
+如果你想切换本地转写模型，可以在启动前设置：
+
+```bash
+export MIRROR_AGENT_WHISPER_MODEL="medium"
+python main.py --voice
+```
 
 如果语音模式报错，优先检查：
 

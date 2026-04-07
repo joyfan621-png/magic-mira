@@ -70,6 +70,14 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("点一下开口", template)
         self.assertIn("想免按键直接对话，就先开镜头", template)
 
+    def test_first_message_invites_naming_and_basic_intro(self) -> None:
+        template = (PROJECT_ROOT / "templates" / "index.html").read_text(encoding="utf-8")
+
+        self.assertIn("你想叫我什么", template)
+        self.assertIn("介绍介绍你自己", template)
+        self.assertIn("肤质、作息", template)
+        self.assertIn("我会慢慢更懂你", template)
+
     def test_web_voice_flow_no_longer_requires_wake_word_copy(self) -> None:
         script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
 
@@ -180,6 +188,15 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn("scheduled_reminder", script)
         self.assertIn("lastTriggeredReminder", script)
 
+    def test_main_frontend_detects_halou_and_goodbye_for_special_reply_scene(self) -> None:
+        script = (PROJECT_ROOT / "static" / "app.js").read_text(encoding="utf-8")
+
+        self.assertIn("function resolveReplyScene(message)", script)
+        self.assertIn("halou", script)
+        self.assertIn("再见", script)
+        self.assertIn('return "greeting";', script)
+        self.assertIn('return "farewell";', script)
+
     def test_tablet_frontend_uses_only_the_selected_five_animation_variants(self) -> None:
         script = (PROJECT_ROOT / "static" / "tablet.js").read_text(encoding="utf-8")
 
@@ -188,6 +205,16 @@ class FrontendContractTests(unittest.TestCase):
         self.assertIn('"thinking": "star-spiral"', script)
         self.assertIn('"reply": "bow-flash"', script)
         self.assertIn('"idle": "ribbon-sway"', script)
+
+    def test_tablet_frontend_supports_ear_wiggle_scene_for_greeting_and_farewell(self) -> None:
+        script = (PROJECT_ROOT / "static" / "tablet.js").read_text(encoding="utf-8")
+        stylesheet = (PROJECT_ROOT / "static" / "tablet.css").read_text(encoding="utf-8")
+
+        self.assertIn('"greeting": "ear-wiggle"', script)
+        self.assertIn('"farewell": "ear-wiggle"', script)
+        self.assertIn("stage-ear-wiggle", stylesheet)
+        self.assertIn("@keyframes earWiggleLeft", stylesheet)
+        self.assertIn("@keyframes earWiggleRight", stylesheet)
 
     def test_tablet_frontend_renders_synced_reminder_countdown(self) -> None:
         template = (PROJECT_ROOT / "templates" / "tablet.html").read_text(encoding="utf-8")

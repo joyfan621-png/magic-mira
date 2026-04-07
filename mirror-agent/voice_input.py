@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import tempfile
 import wave
 from collections import deque
@@ -9,6 +10,7 @@ from typing import Any, Callable
 
 
 DEFAULT_WAKE_WORD = "小镜"
+DEFAULT_WHISPER_MODEL = "small"
 
 
 def extract_wake_text(text: str, wake_word: str = DEFAULT_WAKE_WORD) -> str | None:
@@ -39,11 +41,11 @@ def save_wav_file(
 
 def transcribe_audio_file(
     audio_path: str | Path,
-    whisper_model_name: str = "base",
+    whisper_model_name: str | None = None,
     whisper_loader: Callable[[str], Any] | None = None,
 ) -> str:
     loader = whisper_loader or _load_whisper_model
-    model = loader(whisper_model_name)
+    model = loader(resolve_whisper_model_name(whisper_model_name))
     result = model.transcribe(str(audio_path), language="zh")
     return str(result.get("text", "")).strip()
 
@@ -52,7 +54,7 @@ class VoiceInput:
     def __init__(
         self,
         wake_word: str = DEFAULT_WAKE_WORD,
-        whisper_model_name: str = "base",
+        whisper_model_name: str | None = None,
         sample_rate: int = 16000,
         channels: int = 1,
         chunk_size: int = 1024,
@@ -63,7 +65,7 @@ class VoiceInput:
         pyaudio_module: Any | None = None,
     ) -> None:
         self.wake_word = wake_word
-        self.whisper_model_name = whisper_model_name
+        self.whisper_model_name = resolve_whisper_model_name(whisper_model_name)
         self.sample_rate = sample_rate
         self.channels = channels
         self.chunk_size = chunk_size
@@ -173,6 +175,11 @@ def chunk_energy(chunk: bytes) -> int:
         sample = int.from_bytes(chunk[index : index + 2], byteorder="little", signed=True)
         total += sample * sample
     return int(math.sqrt(total / sample_count))
+
+
+def resolve_whisper_model_name(model_name: str | None = None) -> str:
+    configured = str(model_name or os.getenv("MIRROR_AGENT_WHISPER_MODEL", DEFAULT_WHISPER_MODEL)).strip()
+    return configured or DEFAULT_WHISPER_MODEL
 
 
 def _load_whisper_model(model_name: str) -> Any:

@@ -1,8 +1,10 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from voice_input import extract_wake_text, save_wav_file
+from voice_input import VoiceInput, extract_wake_text, save_wav_file, transcribe_audio_file
 
 
 class VoiceInputHelpersTests(unittest.TestCase):
@@ -27,3 +29,43 @@ class VoiceInputHelpersTests(unittest.TestCase):
 
             self.assertTrue(path.exists())
             self.assertGreater(path.stat().st_size, 44)
+
+    def test_transcribe_audio_file_defaults_to_small_whisper_model(self) -> None:
+        captured_model_names: list[str] = []
+
+        class StubModel:
+            def transcribe(self, audio_path: str, language: str = "") -> dict[str, str]:
+                return {"text": audio_path}
+
+        def loader(model_name: str) -> StubModel:
+            captured_model_names.append(model_name)
+            return StubModel()
+
+        transcript = transcribe_audio_file("/tmp/sample.wav", whisper_loader=loader)
+
+        self.assertEqual("/tmp/sample.wav", transcript)
+        self.assertEqual(["small"], captured_model_names)
+
+    def test_voice_input_defaults_to_small_whisper_model(self) -> None:
+        voice_input = VoiceInput()
+
+        self.assertEqual("small", voice_input.whisper_model_name)
+
+    def test_whisper_model_can_be_overridden_via_environment(self) -> None:
+        captured_model_names: list[str] = []
+
+        class StubModel:
+            def transcribe(self, audio_path: str, language: str = "") -> dict[str, str]:
+                return {"text": audio_path}
+
+        def loader(model_name: str) -> StubModel:
+            captured_model_names.append(model_name)
+            return StubModel()
+
+        with patch.dict(os.environ, {"MIRROR_AGENT_WHISPER_MODEL": "medium"}, clear=False):
+            voice_input = VoiceInput()
+            transcript = transcribe_audio_file("/tmp/sample.wav", whisper_loader=loader)
+
+        self.assertEqual("medium", voice_input.whisper_model_name)
+        self.assertEqual("/tmp/sample.wav", transcript)
+        self.assertEqual(["medium"], captured_model_names)

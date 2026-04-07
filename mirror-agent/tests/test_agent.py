@@ -10,6 +10,9 @@ from ollama_client import OllamaClient
 from main import build_parser
 
 
+REPO_SOUL_PROMPT = (Path(__file__).resolve().parents[1] / "soul.md").read_text(encoding="utf-8")
+
+
 class FakeStreamingCompletions:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
@@ -252,6 +255,42 @@ class AgentTests(unittest.TestCase):
             self.assertIn("100字以内", prompt)
             self.assertIn("最多5句", prompt)
             self.assertIn("直接说你能确认到的现象和区域", prompt)
+
+    def test_build_system_prompt_includes_first_meeting_name_and_companionship_flow(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text(REPO_SOUL_PROMPT, encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            prompt = agent.build_system_prompt()
+
+            self.assertIn("你想叫我什么", prompt)
+            self.assertIn("跟我说说你呗", prompt)
+            self.assertIn("聊着聊着我就懂你了", prompt)
+            self.assertIn("把作息、吃饭和护肤习惯养稳", prompt)
+
+    def test_build_system_prompt_includes_tcm_face_mapping_and_food_guidance(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            project_root = Path(temp_dir)
+            (project_root / "memory" / "diary").mkdir(parents=True)
+            (project_root / "knowledge").mkdir(parents=True)
+            (project_root / "soul.md").write_text(REPO_SOUL_PROMPT, encoding="utf-8")
+            (project_root / "knowledge" / "skincare.md").write_text("# 护肤知识\n", encoding="utf-8")
+
+            config = AppConfig(project_root=project_root, api_key="test-key")
+            agent = MirrorAgent(config=config, client=None)
+
+            prompt = agent.build_system_prompt()
+
+            self.assertIn("左脸颊：肝气不舒", prompt)
+            self.assertIn("玫瑰花茶", prompt)
+            self.assertIn("下巴：肾气不足", prompt)
+            self.assertIn("黑芝麻", prompt)
 
     def test_respond_shortens_overlong_model_reply(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

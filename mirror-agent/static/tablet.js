@@ -12,6 +12,8 @@ const SCENE_VARIANTS = {
   "startup": "crown-trace",
   "listening": "wand-sweep",
   "thinking": "star-spiral",
+  "greeting": "ear-wiggle",
+  "farewell": "ear-wiggle",
   "reply": "bow-flash",
   "idle": "ribbon-sway",
 };
@@ -19,10 +21,12 @@ const SCENE_LABELS = {
   startup: "启动欢迎",
   listening: "听见你了",
   thinking: "我在想",
+  greeting: "耳朵打招呼",
+  farewell: "耳朵说拜拜",
   reply: "回应闪现",
   idle: "安静待机",
 };
-const TRANSIENT_SCENES = new Set(["startup", "listening", "reply"]);
+const TRANSIENT_SCENES = new Set(["startup", "listening", "greeting", "farewell", "reply"]);
 const tabletChannel =
   typeof BroadcastChannel === "function" ? new BroadcastChannel("mirror-tablet-display") : null;
 
@@ -52,6 +56,15 @@ function bowSvg() {
       <path class="symbol-path" d="M74 54 L80 60 L86 54 L80 68 Z"></path>
       <path class="symbol-path" d="M78 64 C 70 72 60 82 52 92"></path>
       <path class="symbol-path" d="M82 64 C 90 72 100 82 108 92"></path>
+    </svg>
+  `;
+}
+
+function earSvg(side) {
+  return `
+    <svg class="ear-svg ${side}" viewBox="0 0 120 160" aria-hidden="true">
+      <path class="ear-path" d="M60 150 C 26 122 20 78 30 42 C 36 20 50 10 60 10 C 70 10 84 20 90 42 C 100 78 94 122 60 150 Z"></path>
+      <path class="ear-inner-path" d="M60 132 C 40 112 38 78 44 52 C 48 34 54 24 60 24 C 66 24 72 34 76 52 C 82 78 80 112 60 132 Z"></path>
     </svg>
   `;
 }
@@ -102,6 +115,19 @@ const stageTemplates = {
         { className: "spiral-star", angle: "144deg", radius: "48px", delay: "0.36s", size: "10px" },
         { className: "spiral-star", angle: "216deg", radius: "62px", delay: "0.54s", size: "12px" },
         { className: "spiral-star", angle: "288deg", radius: "52px", delay: "0.72s", size: "10px" },
+      ])}
+    </div>
+  `,
+  "ear-wiggle": `
+    <div class="stage-ear-wiggle">
+      <span class="soft-glow"></span>
+      ${earSvg("left")}
+      ${earSvg("right")}
+      <span class="ribbon-knot"></span>
+      ${variableStars([
+        { className: "jewel-dot", left: "46%", top: "44%", size: "8px", delay: "0.08s" },
+        { className: "jewel-dot", left: "38%", top: "34%", size: "6px", delay: "0.2s" },
+        { className: "jewel-dot", left: "56%", top: "34%", size: "6px", delay: "0.32s" },
       ])}
     </div>
   `,

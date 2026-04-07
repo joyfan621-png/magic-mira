@@ -117,6 +117,31 @@ function pushTabletScene(scene, details = {}) {
   updateTabletState({ scene, ...details });
 }
 
+function normalizeIntentMessage(message) {
+  return String(message || "").trim().toLowerCase();
+}
+
+function resolveReplyScene(message) {
+  const normalized = normalizeIntentMessage(message);
+  if (!normalized) {
+    return "reply";
+  }
+
+  if (/(^|[\s,，。！？!?~～])(?:halou|hello|halo|hi)(?=$|[\s,，。！？!?~～])/.test(normalized) || /(你好|哈喽|哈啰|嗨)/.test(normalized)) {
+    return "greeting";
+  }
+
+  if (/(再见|拜拜|晚安)/.test(normalized)) {
+    return "farewell";
+  }
+
+  return "reply";
+}
+
+function pushReplyScene(message, source) {
+  pushTabletScene(resolveReplyScene(message), { source });
+}
+
 function setTabletReminder(reminder) {
   if (!reminder) {
     updateTabletState({ reminder: null });
@@ -1257,6 +1282,7 @@ async function startVoiceRecording(options = {}) {
             : "我在整理你的话，字幕会边走边出来。"
       );
       let tabletReplyStarted = false;
+      let replyScene = "reply";
       await streamVoice(
         audioBlob,
         async ({
@@ -1275,6 +1301,7 @@ async function startVoiceRecording(options = {}) {
           if (pendingUserVoiceBody) {
             pendingUserVoiceBody.textContent = text;
           }
+          replyScene = resolveReplyScene(text);
           pushTabletScene("thinking", { source: "transcript" });
           const liveAgentMessage = createLiveMessage("agent", "");
           pendingAgentVoiceCard = liveAgentMessage.card;
@@ -1288,7 +1315,7 @@ async function startVoiceRecording(options = {}) {
           setAssistantLabel(assistantLabelFromEvent);
           if (!tabletReplyStarted) {
             tabletReplyStarted = true;
-            pushTabletScene("reply", { source: "reply-delta" });
+            pushTabletScene(replyScene, { source: "reply-delta" });
           }
           if (pendingAgentVoiceBody) {
             pendingAgentVoiceBody.textContent = text || delta || "";
@@ -1299,7 +1326,7 @@ async function startVoiceRecording(options = {}) {
         if (type === "reply_done") {
           setAssistantLabel(assistantLabelFromEvent);
           if (!tabletReplyStarted) {
-            pushTabletScene("reply", { source: "reply-done" });
+            pushTabletScene(replyScene, { source: "reply-done" });
             tabletReplyStarted = true;
           }
           applyInteractionPayload({ ui_effect: uiEffect });
@@ -1390,7 +1417,7 @@ chatForm.addEventListener("submit", async (event) => {
       }
       if (replyPayload.audio_url) {
         setAssistantLabel(replyPayload.assistant_label);
-        pushTabletScene("reply", { source: "image-reply" });
+        pushReplyScene(note, "image-reply");
         const audioPlayer = appendAgentVoiceReply(replyPayload.reply, replyPayload.audio_url);
         await queueAudioPlayback(
           audioPlayer,
@@ -1420,7 +1447,7 @@ chatForm.addEventListener("submit", async (event) => {
       }
       setAssistantLabel(replyPayload.assistant_label);
       appendMessage("agent", reply);
-      pushTabletScene("reply", { source: "text-reply" });
+      pushReplyScene(draft, "text-reply");
       queueTabletScene("idle", 1400, { source: "text-finished" });
     }
     messageInput.value = "";
@@ -1450,7 +1477,7 @@ endButton.addEventListener("click", async () => {
     setAssistantLabel(payload.assistant_label);
     appendMessage("agent", payload.reply);
     appendMessage("system", `今天的记录已经写到 ${payload.diary_path}`);
-    pushTabletScene("reply", { source: "end-session" });
+    pushReplyScene("晚安", "end-session");
     queueTabletScene("idle", 1400, { source: "end-finished" });
     setStatus("收工啦，明天见。");
   } catch (error) {
